@@ -1,0 +1,27 @@
+{
+  "name": "three-expanded-shaders",
+  "version": "0.104.0",
+  "description": "Package containing expanded versions of all three.js shaders.",
+  "scripts": {
+    "postinstall": "node scripts/expand-shaders.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amsgames94/three-expanded-shaders.git"
+  },
+  "keywords": [
+    "threejs",
+    "shaders",
+    "webgl"
+  ],
+  "author": "Andrés Valencia Téllez",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/amsgames94/three-expanded-shaders/issues"
+  },
+  "homepage": "https://github.com/amsgames94/three-expanded-shaders#readme",
+  "devDependencies": {
+    "three": "^0.104.0",
+    "node": "^12.3.1"
+  }
+}
