@@ -168,6 +168,11 @@ vec3 F_Schlick( const in vec3 specularColor, const in float dotLH ) {
 	float fresnel = exp2( ( -5.55473 * dotLH - 6.98316 ) * dotLH );
 	return ( 1.0 - specularColor ) * fresnel + specularColor;
 }
+vec3 F_Schlick_RoughnessDependent( const in vec3 F0, const in float dotNV, const in float roughness ) {
+	float fresnel = exp2( ( -5.55473 * dotNV - 6.98316 ) * dotNV );
+	vec3 Fr = max( vec3( 1.0 - roughness ), F0 ) - F0;
+	return Fr * fresnel + F0;
+}
 float G_GGX_Smith( const in float alpha, const in float dotNL, const in float dotNV ) {
 	float a2 = pow2( alpha );
 	float gl = dotNL + sqrt( a2 + ( 1.0 - a2 ) * pow2( dotNL ) );
@@ -252,7 +257,7 @@ vec3 BRDF_Specular_GGX_Environment( const in GeometricContext geometry, const in
 }
 void BRDF_Specular_Multiscattering_Environment( const in GeometricContext geometry, const in vec3 specularColor, const in float roughness, inout vec3 singleScatter, inout vec3 multiScatter ) {
 	float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
-	vec3 F = F_Schlick( specularColor, dotNV );
+	vec3 F = F_Schlick_RoughnessDependent( specularColor, dotNV, roughness );
 	vec2 brdf = integrateSpecularBRDF( dotNV, roughness );
 	vec3 FssEss = F * brdf.x + brdf.y;
 	float Ess = brdf.x + brdf.y;
@@ -683,7 +688,7 @@ void RE_IndirectSpecular_Physical( const in vec3 radiance, const in vec3 irradia
 		vec3 multiScattering = vec3( 0.0 );
 		vec3 cosineWeightedIrradiance = irradiance * RECIPROCAL_PI;
 		BRDF_Specular_Multiscattering_Environment( geometry, material.specularColor, material.specularRoughness, singleScattering, multiScattering );
-		vec3 diffuse = material.diffuseColor;
+		vec3 diffuse = material.diffuseColor * ( 1.0 - ( singleScattering + multiScattering ) );
 		reflectedLight.indirectSpecular += clearCoatInv * radiance * singleScattering;
 		reflectedLight.indirectDiffuse += multiScattering * cosineWeightedIrradiance;
 		reflectedLight.indirectDiffuse += diffuse * cosineWeightedIrradiance;
