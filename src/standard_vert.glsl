@@ -98,7 +98,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	uniform mat4 bindMatrix;
 	uniform mat4 bindMatrixInverse;
 	#ifdef BONE_TEXTURE
-		uniform sampler2D boneTexture;
+		uniform highp sampler2D boneTexture;
 		uniform int boneTextureSize;
 		mat4 getBoneMatrix( const in float i ) {
 			float j = i * 4.0;

@@ -29,7 +29,7 @@
 	uniform mat4 bindMatrix;
 	uniform mat4 bindMatrixInverse;
 	#ifdef BONE_TEXTURE
-		uniform sampler2D boneTexture;
+		uniform highp sampler2D boneTexture;
 		uniform int boneTextureSize;
 		mat4 getBoneMatrix( const in float i ) {
 			float j = i * 4.0;
@@ -59,6 +59,9 @@
 	#else
 		uniform float logDepthBufFC;
 	#endif
+#endif
+#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	varying vec3 vViewPosition;
 #endif
 void main() {
 	#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
@@ -143,6 +146,9 @@ gl_Position = projectionMatrix * mvPosition;
 		gl_Position.z = log2( max( EPSILON, gl_Position.w + 1.0 ) ) * logDepthBufFC - 1.0;
 		gl_Position.z *= gl_Position.w;
 	#endif
+#endif
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	vViewPosition = - mvPosition.xyz;
 #endif
 #if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || ( defined( USE_NORMALMAP ) && ! defined( OBJECTSPACE_NORMALMAP ) )
 	vViewPosition = - mvPosition.xyz;
