@@ -15,7 +15,7 @@ varying vec3 vIndirectFront;
 #define LOG2 1.442695
 #define EPSILON 1e-6
 #define saturate(a) clamp( a, 0.0, 1.0 )
-#define whiteCompliment(a) ( 1.0 - saturate( a ) )
+#define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
 float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
@@ -25,6 +25,15 @@ highp float rand( const in vec2 uv ) {
 	highp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
 	return fract(sin(sn) * c);
 }
+#ifdef HIGH_PRECISION
+	float precisionSafeLength( vec3 v ) { return length( v ); }
+#else
+	float max3( vec3 v ) { return max( max( v.x, v.y ), v.z ); }
+	float precisionSafeLength( vec3 v ) {
+		float maxComponent = max3( abs( v ) );
+		return length( v / maxComponent ) * maxComponent;
+	}
+#endif
 struct IncidentLight {
 	vec3 color;
 	vec3 direction;
@@ -40,6 +49,9 @@ struct GeometricContext {
 	vec3 position;
 	vec3 normal;
 	vec3 viewDir;
+#ifdef CLEARCOAT
+	vec3 clearcoatNormal;
+#endif
 };
 vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
 	return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
@@ -85,6 +97,18 @@ vec4 packDepthToRGBA( const in float v ) {
 float unpackRGBAToDepth( const in vec4 v ) {
 	return dot( v, UnpackFactors );
 }
+vec4 encodeHalfRGBA ( vec2 v ) {
+	vec4 encoded = vec4( 0.0 );
+	const vec2 offset = vec2( 1.0 / 255.0, 0.0 );
+	encoded.xy = vec2( v.x, fract( v.x * 255.0 ) );
+	encoded.xy = encoded.xy - ( encoded.yy * offset );
+	encoded.zw = vec2( v.y, fract( v.y * 255.0 ) );
+	encoded.zw = encoded.zw - ( encoded.ww * offset );
+	return encoded;
+}
+vec2 decodeHalfRGBA( vec4 v ) {
+	return vec2( v.x + ( v.y / 255.0 ), v.z + ( v.w / 255.0 ) );
+}
 float viewZToOrthographicDepth( const in float viewZ, const in float near, const in float far ) {
 	return ( viewZ + near ) / ( near - far );
 }
@@ -97,7 +121,7 @@ float viewZToPerspectiveDepth( const in float viewZ, const in float near, const 
 float perspectiveDepthToViewZ( const in float invClipZ, const in float near, const in float far ) {
 	return ( near * far ) / ( ( far - near ) * invClipZ - far );
 }
-#if defined( DITHERING )
+#ifdef DITHERING
 	vec3 dithering( vec3 color ) {
 		float grid_position = rand( gl_FragCoord.xy );
 		vec3 dither_shift_RGB = vec3( 0.25 / 255.0, -0.25 / 255.0, 0.25 / 255.0 );
@@ -108,7 +132,7 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #ifdef USE_COLOR
 	varying vec3 vColor;
 #endif
-#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+#ifdef USE_UV
 	varying vec2 vUv;
 #endif
 #if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
@@ -131,22 +155,24 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #ifdef USE_EMISSIVEMAP
 	uniform sampler2D emissiveMap;
 #endif
-#if defined( USE_ENVMAP ) || defined( PHYSICAL )
-	uniform float reflectivity;
-	uniform float envMapIntensity;
-#endif
 #ifdef USE_ENVMAP
-	#if ! defined( PHYSICAL ) && ( defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG ) )
-		varying vec3 vWorldPosition;
-	#endif
+	uniform float envMapIntensity;
+	uniform float flipEnvMap;
+	uniform int maxMipLevel;
 	#ifdef ENVMAP_TYPE_CUBE
 		uniform samplerCube envMap;
 	#else
 		uniform sampler2D envMap;
 	#endif
-	uniform float flipEnvMap;
-	uniform int maxMipLevel;
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG ) || defined( PHYSICAL )
+	
+#endif
+#ifdef USE_ENVMAP
+	uniform float reflectivity;
+	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG )
+		#define ENV_WORLDPOS
+	#endif
+	#ifdef ENV_WORLDPOS
+		varying vec3 vWorldPosition;
 		uniform float refractionRatio;
 	#else
 		varying vec3 vReflect;
@@ -202,12 +228,12 @@ float D_GGX( const in float alpha, const in float dotNH ) {
 	float denom = pow2( dotNH ) * ( a2 - 1.0 ) + 1.0;
 	return RECIPROCAL_PI * a2 / pow2( denom );
 }
-vec3 BRDF_Specular_GGX( const in IncidentLight incidentLight, const in GeometricContext geometry, const in vec3 specularColor, const in float roughness ) {
+vec3 BRDF_Specular_GGX( const in IncidentLight incidentLight, const in vec3 viewDir, const in vec3 normal, const in vec3 specularColor, const in float roughness ) {
 	float alpha = pow2( roughness );
-	vec3 halfDir = normalize( incidentLight.direction + geometry.viewDir );
-	float dotNL = saturate( dot( geometry.normal, incidentLight.direction ) );
-	float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
-	float dotNH = saturate( dot( geometry.normal, halfDir ) );
+	vec3 halfDir = normalize( incidentLight.direction + viewDir );
+	float dotNL = saturate( dot( normal, incidentLight.direction ) );
+	float dotNV = saturate( dot( normal, viewDir ) );
+	float dotNH = saturate( dot( normal, halfDir ) );
 	float dotLH = saturate( dot( incidentLight.direction, halfDir ) );
 	vec3 F = F_Schlick( specularColor, dotLH );
 	float G = G_GGX_SmithCorrelated( alpha, dotNL, dotNV );
@@ -262,8 +288,8 @@ vec3 LTC_Evaluate( const in vec3 N, const in vec3 V, const in vec3 P, const in m
 	float result = LTC_ClippedSphereFormFactor( vectorFormFactor );
 	return vec3( result );
 }
-vec3 BRDF_Specular_GGX_Environment( const in GeometricContext geometry, const in vec3 specularColor, const in float roughness ) {
-	float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
+vec3 BRDF_Specular_GGX_Environment( const in vec3 viewDir, const in vec3 normal, const in vec3 specularColor, const in float roughness ) {
+	float dotNV = saturate( dot( normal, viewDir ) );
 	vec2 brdf = integrateSpecularBRDF( dotNV, roughness );
 	return specularColor * brdf.x + brdf.y;
 }
@@ -299,6 +325,23 @@ float GGXRoughnessToBlinnExponent( const in float ggxRoughness ) {
 float BlinnExponentToGGXRoughness( const in float blinnExponent ) {
 	return sqrt( 2.0 / ( blinnExponent + 2.0 ) );
 }
+#if defined( USE_SHEEN )
+float D_Charlie(float roughness, float NoH) {
+	float invAlpha  = 1.0 / roughness;
+	float cos2h = NoH * NoH;
+	float sin2h = max(1.0 - cos2h, 0.0078125);	return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
+}
+float V_Neubelt(float NoV, float NoL) {
+	return saturate(1.0 / (4.0 * (NoL + NoV - NoL * NoV)));
+}
+vec3 BRDF_Specular_Sheen( const in float roughness, const in vec3 L, const in GeometricContext geometry, vec3 specularColor ) {
+	vec3 N = geometry.normal;
+	vec3 V = geometry.viewDir;
+	vec3 H = normalize( V + L );
+	float dotNH = saturate( dot( N, H ) );
+	return specularColor * D_Charlie( roughness, dotNH ) * V_Neubelt( dot(N, V), dot(N, L) );
+}
+#endif
 uniform vec3 ambientLightColor;
 uniform vec3 lightProbe[ 9 ];
 vec3 shGetIrradianceAt( in vec3 normal, in vec3 shCoefficients[ 9 ] ) {
@@ -434,25 +477,39 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 	#endif
 #endif
 #ifdef USE_SHADOWMAP
-	#if NUM_DIR_LIGHTS > 0
-		uniform sampler2D directionalShadowMap[ NUM_DIR_LIGHTS ];
-		varying vec4 vDirectionalShadowCoord[ NUM_DIR_LIGHTS ];
+	#if NUM_DIR_LIGHT_SHADOWS > 0
+		uniform sampler2D directionalShadowMap[ NUM_DIR_LIGHT_SHADOWS ];
+		varying vec4 vDirectionalShadowCoord[ NUM_DIR_LIGHT_SHADOWS ];
 	#endif
-	#if NUM_SPOT_LIGHTS > 0
-		uniform sampler2D spotShadowMap[ NUM_SPOT_LIGHTS ];
-		varying vec4 vSpotShadowCoord[ NUM_SPOT_LIGHTS ];
+	#if NUM_SPOT_LIGHT_SHADOWS > 0
+		uniform sampler2D spotShadowMap[ NUM_SPOT_LIGHT_SHADOWS ];
+		varying vec4 vSpotShadowCoord[ NUM_SPOT_LIGHT_SHADOWS ];
 	#endif
-	#if NUM_POINT_LIGHTS > 0
-		uniform sampler2D pointShadowMap[ NUM_POINT_LIGHTS ];
-		varying vec4 vPointShadowCoord[ NUM_POINT_LIGHTS ];
+	#if NUM_POINT_LIGHT_SHADOWS > 0
+		uniform sampler2D pointShadowMap[ NUM_POINT_LIGHT_SHADOWS ];
+		varying vec4 vPointShadowCoord[ NUM_POINT_LIGHT_SHADOWS ];
 	#endif
 	float texture2DCompare( sampler2D depths, vec2 uv, float compare ) {
 		return step( compare, unpackRGBAToDepth( texture2D( depths, uv ) ) );
 	}
+	vec2 texture2DDistribution( sampler2D shadow, vec2 uv ) {
+		return decodeHalfRGBA( texture2D( shadow, uv ) );
+	}
+	float VSMShadow (sampler2D shadow, vec2 uv, float compare ){
+		float occlusion = 1.0;
+		vec2 distribution = texture2DDistribution( shadow, uv );
+		float hard_shadow = step( compare , distribution.x );
+		if (hard_shadow != 1.0 ) {
+			float distance = compare - distribution.x ;
+			float variance = max( 0.00000, distribution.y * distribution.y );
+			float softness_probability = variance / (variance + distance * distance );			softness_probability = clamp( ( softness_probability - 0.3 ) / ( 0.95 - 0.3 ), 0.0, 1.0 );			occlusion = clamp( max( hard_shadow, softness_probability ), 0.0, 1.0 );
+		}
+		return occlusion;
+	}
 	float texture2DShadowLerp( sampler2D depths, vec2 size, vec2 uv, float compare ) {
 		const vec2 offset = vec2( 0.0, 1.0 );
 		vec2 texelSize = vec2( 1.0 ) / size;
-		vec2 centroidUV = floor( uv * size + 0.5 ) / size;
+		vec2 centroidUV = ( floor( uv * size - 0.5 ) + 0.5 ) * texelSize;
 		float lb = texture2DCompare( depths, centroidUV + texelSize * offset.xx, compare );
 		float lt = texture2DCompare( depths, centroidUV + texelSize * offset.xy, compare );
 		float rb = texture2DCompare( depths, centroidUV + texelSize * offset.yx, compare );
@@ -518,6 +575,8 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 				texture2DShadowLerp( shadowMap, shadowMapSize, shadowCoord.xy + vec2( 0.0, dy1 ), shadowCoord.z ) +
 				texture2DShadowLerp( shadowMap, shadowMapSize, shadowCoord.xy + vec2( dx1, dy1 ), shadowCoord.z )
 			) * ( 1.0 / 9.0 );
+		#elif defined( SHADOWMAP_TYPE_VSM )
+			shadow = VSMShadow( shadowMap, shadowCoord.xy, shadowCoord.z );
 		#else
 			shadow = texture2DCompare( shadowMap, shadowCoord.xy, shadowCoord.z );
 		#endif
@@ -550,7 +609,7 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 		vec3 lightToPosition = shadowCoord.xyz;
 		float dp = ( length( lightToPosition ) - shadowCameraNear ) / ( shadowCameraFar - shadowCameraNear );		dp += shadowBias;
 		vec3 bd3D = normalize( lightToPosition );
-		#if defined( SHADOWMAP_TYPE_PCF ) || defined( SHADOWMAP_TYPE_PCF_SOFT )
+		#if defined( SHADOWMAP_TYPE_PCF ) || defined( SHADOWMAP_TYPE_PCF_SOFT ) || defined( SHADOWMAP_TYPE_VSM )
 			vec2 offset = vec2( - 1, 1 ) * shadowRadius * texelSize.y;
 			return (
 				texture2DCompare( shadowMap, cubeToUV( bd3D + offset.xyy, texelSize.y ), dp ) +
@@ -571,26 +630,26 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 float getShadowMask() {
 	float shadow = 1.0;
 	#ifdef USE_SHADOWMAP
-	#if NUM_DIR_LIGHTS > 0
+	#if NUM_DIR_LIGHT_SHADOWS > 0
 	DirectionalLight directionalLight;
 	#pragma unroll_loop
-	for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
+	for ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
 		directionalLight = directionalLights[ i ];
 		shadow *= bool( directionalLight.shadow ) ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
 	}
 	#endif
-	#if NUM_SPOT_LIGHTS > 0
+	#if NUM_SPOT_LIGHT_SHADOWS > 0
 	SpotLight spotLight;
 	#pragma unroll_loop
-	for ( int i = 0; i < NUM_SPOT_LIGHTS; i ++ ) {
+	for ( int i = 0; i < NUM_SPOT_LIGHT_SHADOWS; i ++ ) {
 		spotLight = spotLights[ i ];
 		shadow *= bool( spotLight.shadow ) ? getShadow( spotShadowMap[ i ], spotLight.shadowMapSize, spotLight.shadowBias, spotLight.shadowRadius, vSpotShadowCoord[ i ] ) : 1.0;
 	}
 	#endif
-	#if NUM_POINT_LIGHTS > 0
+	#if NUM_POINT_LIGHT_SHADOWS > 0
 	PointLight pointLight;
 	#pragma unroll_loop
-	for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
+	for ( int i = 0; i < NUM_POINT_LIGHT_SHADOWS; i ++ ) {
 		pointLight = pointLights[ i ];
 		shadow *= bool( pointLight.shadow ) ? getPointShadow( pointShadowMap[ i ], pointLight.shadowMapSize, pointLight.shadowBias, pointLight.shadowRadius, vPointShadowCoord[ i ], pointLight.shadowCameraNear, pointLight.shadowCameraFar ) : 1.0;
 	}
@@ -606,7 +665,7 @@ float getShadowMask() {
 	varying float vFragDepth;
 #endif
 #if NUM_CLIPPING_PLANES > 0
-	#if ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 		varying vec3 vViewPosition;
 	#endif
 	uniform vec4 clippingPlanes[ NUM_CLIPPING_PLANES ];
@@ -680,14 +739,14 @@ void main() {
 	#ifdef USE_AOMAP
 	float ambientOcclusion = ( texture2D( aoMap, vUv2 ).r - 1.0 ) * aoMapIntensity + 1.0;
 	reflectedLight.indirectDiffuse *= ambientOcclusion;
-	#if defined( USE_ENVMAP ) && defined( PHYSICAL )
+	#if defined( USE_ENVMAP ) && defined( STANDARD )
 		float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
 		reflectedLight.indirectSpecular *= computeSpecularOcclusion( dotNV, ambientOcclusion, material.specularRoughness );
 	#endif
 #endif
 	vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;
 	#ifdef USE_ENVMAP
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG )
+	#ifdef ENV_WORLDPOS
 		vec3 cameraToVertex = normalize( vWorldPosition - cameraPosition );
 		vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );
 		#ifdef ENVMAP_MODE_REFLECTION
@@ -729,7 +788,7 @@ void main() {
 	gl_FragColor = linearToOutputTexel( gl_FragColor );
 	#ifdef USE_FOG
 	#ifdef FOG_EXP2
-		float fogFactor = whiteCompliment( exp2( - fogDensity * fogDensity * fogDepth * fogDepth * LOG2 ) );
+		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * fogDepth * fogDepth );
 	#else
 		float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
 	#endif
@@ -738,7 +797,7 @@ void main() {
 	#ifdef PREMULTIPLIED_ALPHA
 	gl_FragColor.rgb *= gl_FragColor.a;
 #endif
-	#if defined( DITHERING )
+	#ifdef DITHERING
 	gl_FragColor.rgb = dithering( gl_FragColor.rgb );
 #endif
 }

@@ -8,7 +8,7 @@ uniform float scale;
 #define LOG2 1.442695
 #define EPSILON 1e-6
 #define saturate(a) clamp( a, 0.0, 1.0 )
-#define whiteCompliment(a) ( 1.0 - saturate( a ) )
+#define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
 float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
@@ -18,6 +18,15 @@ highp float rand( const in vec2 uv ) {
 	highp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
 	return fract(sin(sn) * c);
 }
+#ifdef HIGH_PRECISION
+	float precisionSafeLength( vec3 v ) { return length( v ); }
+#else
+	float max3( vec3 v ) { return max( max( v.x, v.y ), v.z ); }
+	float precisionSafeLength( vec3 v ) {
+		float maxComponent = max3( abs( v ) );
+		return length( v / maxComponent ) * maxComponent;
+	}
+#endif
 struct IncidentLight {
 	vec3 color;
 	vec3 direction;
@@ -33,6 +42,9 @@ struct GeometricContext {
 	vec3 position;
 	vec3 normal;
 	vec3 viewDir;
+#ifdef CLEARCOAT
+	vec3 clearcoatNormal;
+#endif
 };
 vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
 	return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
@@ -81,7 +93,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 		uniform float logDepthBufFC;
 	#endif
 #endif
-#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	varying vec3 vViewPosition;
 #endif
 void main() {
@@ -116,7 +128,7 @@ gl_Position = projectionMatrix * mvPosition;
 		gl_Position.z *= gl_Position.w;
 	#endif
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	vViewPosition = - mvPosition.xyz;
 #endif
 	#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )

@@ -13,7 +13,7 @@ varying vec3 vIndirectFront;
 #define LOG2 1.442695
 #define EPSILON 1e-6
 #define saturate(a) clamp( a, 0.0, 1.0 )
-#define whiteCompliment(a) ( 1.0 - saturate( a ) )
+#define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
 float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
@@ -23,6 +23,15 @@ highp float rand( const in vec2 uv ) {
 	highp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
 	return fract(sin(sn) * c);
 }
+#ifdef HIGH_PRECISION
+	float precisionSafeLength( vec3 v ) { return length( v ); }
+#else
+	float max3( vec3 v ) { return max( max( v.x, v.y ), v.z ); }
+	float precisionSafeLength( vec3 v ) {
+		float maxComponent = max3( abs( v ) );
+		return length( v / maxComponent ) * maxComponent;
+	}
+#endif
 struct IncidentLight {
 	vec3 color;
 	vec3 direction;
@@ -38,6 +47,9 @@ struct GeometricContext {
 	vec3 position;
 	vec3 normal;
 	vec3 viewDir;
+#ifdef CLEARCOAT
+	vec3 clearcoatNormal;
+#endif
 };
 vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
 	return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
@@ -66,7 +78,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
 	return dot( weights, color.rgb );
 }
-#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+#ifdef USE_UV
 	varying vec2 vUv;
 	uniform mat3 uvTransform;
 #endif
@@ -75,7 +87,11 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	varying vec2 vUv2;
 #endif
 #ifdef USE_ENVMAP
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG )
+	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) ||defined( PHONG )
+		#define ENV_WORLDPOS
+	#endif
+	#ifdef ENV_WORLDPOS
+		
 		varying vec3 vWorldPosition;
 	#else
 		varying vec3 vReflect;
@@ -132,12 +148,12 @@ float D_GGX( const in float alpha, const in float dotNH ) {
 	float denom = pow2( dotNH ) * ( a2 - 1.0 ) + 1.0;
 	return RECIPROCAL_PI * a2 / pow2( denom );
 }
-vec3 BRDF_Specular_GGX( const in IncidentLight incidentLight, const in GeometricContext geometry, const in vec3 specularColor, const in float roughness ) {
+vec3 BRDF_Specular_GGX( const in IncidentLight incidentLight, const in vec3 viewDir, const in vec3 normal, const in vec3 specularColor, const in float roughness ) {
 	float alpha = pow2( roughness );
-	vec3 halfDir = normalize( incidentLight.direction + geometry.viewDir );
-	float dotNL = saturate( dot( geometry.normal, incidentLight.direction ) );
-	float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
-	float dotNH = saturate( dot( geometry.normal, halfDir ) );
+	vec3 halfDir = normalize( incidentLight.direction + viewDir );
+	float dotNL = saturate( dot( normal, incidentLight.direction ) );
+	float dotNV = saturate( dot( normal, viewDir ) );
+	float dotNH = saturate( dot( normal, halfDir ) );
 	float dotLH = saturate( dot( incidentLight.direction, halfDir ) );
 	vec3 F = F_Schlick( specularColor, dotLH );
 	float G = G_GGX_SmithCorrelated( alpha, dotNL, dotNV );
@@ -192,8 +208,8 @@ vec3 LTC_Evaluate( const in vec3 N, const in vec3 V, const in vec3 P, const in m
 	float result = LTC_ClippedSphereFormFactor( vectorFormFactor );
 	return vec3( result );
 }
-vec3 BRDF_Specular_GGX_Environment( const in GeometricContext geometry, const in vec3 specularColor, const in float roughness ) {
-	float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
+vec3 BRDF_Specular_GGX_Environment( const in vec3 viewDir, const in vec3 normal, const in vec3 specularColor, const in float roughness ) {
+	float dotNV = saturate( dot( normal, viewDir ) );
 	vec2 brdf = integrateSpecularBRDF( dotNV, roughness );
 	return specularColor * brdf.x + brdf.y;
 }
@@ -229,6 +245,23 @@ float GGXRoughnessToBlinnExponent( const in float ggxRoughness ) {
 float BlinnExponentToGGXRoughness( const in float blinnExponent ) {
 	return sqrt( 2.0 / ( blinnExponent + 2.0 ) );
 }
+#if defined( USE_SHEEN )
+float D_Charlie(float roughness, float NoH) {
+	float invAlpha  = 1.0 / roughness;
+	float cos2h = NoH * NoH;
+	float sin2h = max(1.0 - cos2h, 0.0078125);	return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
+}
+float V_Neubelt(float NoV, float NoL) {
+	return saturate(1.0 / (4.0 * (NoL + NoV - NoL * NoV)));
+}
+vec3 BRDF_Specular_Sheen( const in float roughness, const in vec3 L, const in GeometricContext geometry, vec3 specularColor ) {
+	vec3 N = geometry.normal;
+	vec3 V = geometry.viewDir;
+	vec3 H = normalize( V + L );
+	float dotNH = saturate( dot( N, H ) );
+	return specularColor * D_Charlie( roughness, dotNH ) * V_Neubelt( dot(N, V), dot(N, L) );
+}
+#endif
 uniform vec3 ambientLightColor;
 uniform vec3 lightProbe[ 9 ];
 vec3 shGetIrradianceAt( in vec3 normal, in vec3 shCoefficients[ 9 ] ) {
@@ -395,17 +428,17 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 	#endif
 #endif
 #ifdef USE_SHADOWMAP
-	#if NUM_DIR_LIGHTS > 0
-		uniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHTS ];
-		varying vec4 vDirectionalShadowCoord[ NUM_DIR_LIGHTS ];
+	#if NUM_DIR_LIGHT_SHADOWS > 0
+		uniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHT_SHADOWS ];
+		varying vec4 vDirectionalShadowCoord[ NUM_DIR_LIGHT_SHADOWS ];
 	#endif
-	#if NUM_SPOT_LIGHTS > 0
-		uniform mat4 spotShadowMatrix[ NUM_SPOT_LIGHTS ];
-		varying vec4 vSpotShadowCoord[ NUM_SPOT_LIGHTS ];
+	#if NUM_SPOT_LIGHT_SHADOWS > 0
+		uniform mat4 spotShadowMatrix[ NUM_SPOT_LIGHT_SHADOWS ];
+		varying vec4 vSpotShadowCoord[ NUM_SPOT_LIGHT_SHADOWS ];
 	#endif
-	#if NUM_POINT_LIGHTS > 0
-		uniform mat4 pointShadowMatrix[ NUM_POINT_LIGHTS ];
-		varying vec4 vPointShadowCoord[ NUM_POINT_LIGHTS ];
+	#if NUM_POINT_LIGHT_SHADOWS > 0
+		uniform mat4 pointShadowMatrix[ NUM_POINT_LIGHT_SHADOWS ];
+		varying vec4 vPointShadowCoord[ NUM_POINT_LIGHT_SHADOWS ];
 	#endif
 #endif
 #ifdef USE_LOGDEPTHBUF
@@ -415,11 +448,11 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 		uniform float logDepthBufFC;
 	#endif
 #endif
-#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	varying vec3 vViewPosition;
 #endif
 void main() {
-	#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+	#ifdef USE_UV
 	vUv = ( uvTransform * vec3( uv, 1 ) ).xy;
 #endif
 	#if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
@@ -498,14 +531,14 @@ gl_Position = projectionMatrix * mvPosition;
 		gl_Position.z *= gl_Position.w;
 	#endif
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	vViewPosition = - mvPosition.xyz;
 #endif
 	#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )
 	vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
 #endif
 	#ifdef USE_ENVMAP
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG )
+	#ifdef ENV_WORLDPOS
 		vWorldPosition = worldPosition.xyz;
 	#else
 		vec3 cameraToVertex = normalize( worldPosition.xyz - cameraPosition );
@@ -581,21 +614,21 @@ vec3 directLightColor_Diffuse;
 	}
 #endif
 	#ifdef USE_SHADOWMAP
-	#if NUM_DIR_LIGHTS > 0
+	#if NUM_DIR_LIGHT_SHADOWS > 0
 	#pragma unroll_loop
-	for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
+	for ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
 		vDirectionalShadowCoord[ i ] = directionalShadowMatrix[ i ] * worldPosition;
 	}
 	#endif
-	#if NUM_SPOT_LIGHTS > 0
+	#if NUM_SPOT_LIGHT_SHADOWS > 0
 	#pragma unroll_loop
-	for ( int i = 0; i < NUM_SPOT_LIGHTS; i ++ ) {
+	for ( int i = 0; i < NUM_SPOT_LIGHT_SHADOWS; i ++ ) {
 		vSpotShadowCoord[ i ] = spotShadowMatrix[ i ] * worldPosition;
 	}
 	#endif
-	#if NUM_POINT_LIGHTS > 0
+	#if NUM_POINT_LIGHT_SHADOWS > 0
 	#pragma unroll_loop
-	for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
+	for ( int i = 0; i < NUM_POINT_LIGHT_SHADOWS; i ++ ) {
 		vPointShadowCoord[ i ] = pointShadowMatrix[ i ] * worldPosition;
 	}
 	#endif

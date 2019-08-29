@@ -1,5 +1,5 @@
 #define NORMAL
-#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || ( defined( USE_NORMALMAP ) && ! defined( OBJECTSPACE_NORMALMAP ) )
+#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )
 	varying vec3 vViewPosition;
 #endif
 #ifndef FLAT_SHADED
@@ -9,7 +9,7 @@
 		varying vec3 vBitangent;
 	#endif
 #endif
-#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+#ifdef USE_UV
 	varying vec2 vUv;
 	uniform mat3 uvTransform;
 #endif
@@ -60,11 +60,11 @@
 		uniform float logDepthBufFC;
 	#endif
 #endif
-#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	varying vec3 vViewPosition;
 #endif
 void main() {
-	#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+	#ifdef USE_UV
 	vUv = ( uvTransform * vec3( uv, 1 ) ).xy;
 #endif
 	vec3 objectNormal = vec3( normal );
@@ -147,10 +147,10 @@ gl_Position = projectionMatrix * mvPosition;
 		gl_Position.z *= gl_Position.w;
 	#endif
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	vViewPosition = - mvPosition.xyz;
 #endif
-#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || ( defined( USE_NORMALMAP ) && ! defined( OBJECTSPACE_NORMALMAP ) )
+#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )
 	vViewPosition = - mvPosition.xyz;
 #endif
 }

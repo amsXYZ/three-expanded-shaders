@@ -11,7 +11,7 @@ uniform float opacity;
 #define LOG2 1.442695
 #define EPSILON 1e-6
 #define saturate(a) clamp( a, 0.0, 1.0 )
-#define whiteCompliment(a) ( 1.0 - saturate( a ) )
+#define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
 float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
@@ -21,6 +21,15 @@ highp float rand( const in vec2 uv ) {
 	highp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
 	return fract(sin(sn) * c);
 }
+#ifdef HIGH_PRECISION
+	float precisionSafeLength( vec3 v ) { return length( v ); }
+#else
+	float max3( vec3 v ) { return max( max( v.x, v.y ), v.z ); }
+	float precisionSafeLength( vec3 v ) {
+		float maxComponent = max3( abs( v ) );
+		return length( v / maxComponent ) * maxComponent;
+	}
+#endif
 struct IncidentLight {
 	vec3 color;
 	vec3 direction;
@@ -36,6 +45,9 @@ struct GeometricContext {
 	vec3 position;
 	vec3 normal;
 	vec3 viewDir;
+#ifdef CLEARCOAT
+	vec3 clearcoatNormal;
+#endif
 };
 vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
 	return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
@@ -67,7 +79,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 #ifdef USE_COLOR
 	varying vec3 vColor;
 #endif
-#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+#ifdef USE_UV
 	varying vec2 vUv;
 #endif
 #if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
@@ -87,22 +99,24 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	uniform sampler2D lightMap;
 	uniform float lightMapIntensity;
 #endif
-#if defined( USE_ENVMAP ) || defined( PHYSICAL )
-	uniform float reflectivity;
-	uniform float envMapIntensity;
-#endif
 #ifdef USE_ENVMAP
-	#if ! defined( PHYSICAL ) && ( defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG ) )
-		varying vec3 vWorldPosition;
-	#endif
+	uniform float envMapIntensity;
+	uniform float flipEnvMap;
+	uniform int maxMipLevel;
 	#ifdef ENVMAP_TYPE_CUBE
 		uniform samplerCube envMap;
 	#else
 		uniform sampler2D envMap;
 	#endif
-	uniform float flipEnvMap;
-	uniform int maxMipLevel;
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG ) || defined( PHYSICAL )
+	
+#endif
+#ifdef USE_ENVMAP
+	uniform float reflectivity;
+	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG )
+		#define ENV_WORLDPOS
+	#endif
+	#ifdef ENV_WORLDPOS
+		varying vec3 vWorldPosition;
 		uniform float refractionRatio;
 	#else
 		varying vec3 vReflect;
@@ -126,7 +140,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	varying float vFragDepth;
 #endif
 #if NUM_CLIPPING_PLANES > 0
-	#if ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 		varying vec3 vViewPosition;
 	#endif
 	uniform vec4 clippingPlanes[ NUM_CLIPPING_PLANES ];
@@ -183,7 +197,7 @@ void main() {
 	#ifdef USE_AOMAP
 	float ambientOcclusion = ( texture2D( aoMap, vUv2 ).r - 1.0 ) * aoMapIntensity + 1.0;
 	reflectedLight.indirectDiffuse *= ambientOcclusion;
-	#if defined( USE_ENVMAP ) && defined( PHYSICAL )
+	#if defined( USE_ENVMAP ) && defined( STANDARD )
 		float dotNV = saturate( dot( geometry.normal, geometry.viewDir ) );
 		reflectedLight.indirectSpecular *= computeSpecularOcclusion( dotNV, ambientOcclusion, material.specularRoughness );
 	#endif
@@ -191,7 +205,7 @@ void main() {
 	reflectedLight.indirectDiffuse *= diffuseColor.rgb;
 	vec3 outgoingLight = reflectedLight.indirectDiffuse;
 	#ifdef USE_ENVMAP
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( PHONG )
+	#ifdef ENV_WORLDPOS
 		vec3 cameraToVertex = normalize( vWorldPosition - cameraPosition );
 		vec3 worldNormal = inverseTransformDirection( normal, viewMatrix );
 		#ifdef ENVMAP_MODE_REFLECTION
@@ -236,7 +250,7 @@ void main() {
 	gl_FragColor = linearToOutputTexel( gl_FragColor );
 	#ifdef USE_FOG
 	#ifdef FOG_EXP2
-		float fogFactor = whiteCompliment( exp2( - fogDensity * fogDensity * fogDepth * fogDepth * LOG2 ) );
+		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * fogDepth * fogDepth );
 	#else
 		float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
 	#endif
