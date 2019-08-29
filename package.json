@@ -21,7 +21,7 @@
   },
   "homepage": "https://github.com/amsgames94/three-expanded-shaders#readme",
   "devDependencies": {
-    "three": "^0.107.0",
+    "three": "^0.108.0",
     "node": "^12.3.1"
   }
 }

@@ -11,7 +11,7 @@ varying vec3 vWorldPosition;
 #define LOG2 1.442695
 #define EPSILON 1e-6
 #define saturate(a) clamp( a, 0.0, 1.0 )
-#define whiteCompliment(a) ( 1.0 - saturate( a ) )
+#define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
 float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
@@ -21,6 +21,15 @@ highp float rand( const in vec2 uv ) {
 	highp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
 	return fract(sin(sn) * c);
 }
+#ifdef HIGH_PRECISION
+	float precisionSafeLength( vec3 v ) { return length( v ); }
+#else
+	float max3( vec3 v ) { return max( max( v.x, v.y ), v.z ); }
+	float precisionSafeLength( vec3 v ) {
+		float maxComponent = max3( abs( v ) );
+		return length( v / maxComponent ) * maxComponent;
+	}
+#endif
 struct IncidentLight {
 	vec3 color;
 	vec3 direction;
@@ -36,6 +45,9 @@ struct GeometricContext {
 	vec3 position;
 	vec3 normal;
 	vec3 viewDir;
+#ifdef CLEARCOAT
+	vec3 clearcoatNormal;
+#endif
 };
 vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
 	return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
@@ -81,6 +93,18 @@ vec4 packDepthToRGBA( const in float v ) {
 float unpackRGBAToDepth( const in vec4 v ) {
 	return dot( v, UnpackFactors );
 }
+vec4 encodeHalfRGBA ( vec2 v ) {
+	vec4 encoded = vec4( 0.0 );
+	const vec2 offset = vec2( 1.0 / 255.0, 0.0 );
+	encoded.xy = vec2( v.x, fract( v.x * 255.0 ) );
+	encoded.xy = encoded.xy - ( encoded.yy * offset );
+	encoded.zw = vec2( v.y, fract( v.y * 255.0 ) );
+	encoded.zw = encoded.zw - ( encoded.ww * offset );
+	return encoded;
+}
+vec2 decodeHalfRGBA( vec4 v ) {
+	return vec2( v.x + ( v.y / 255.0 ), v.z + ( v.w / 255.0 ) );
+}
 float viewZToOrthographicDepth( const in float viewZ, const in float near, const in float far ) {
 	return ( viewZ + near ) / ( near - far );
 }
@@ -93,7 +117,7 @@ float viewZToPerspectiveDepth( const in float viewZ, const in float near, const 
 float perspectiveDepthToViewZ( const in float invClipZ, const in float near, const in float far ) {
 	return ( near * far ) / ( ( far - near ) * invClipZ - far );
 }
-#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+#ifdef USE_UV
 	varying vec2 vUv;
 #endif
 #ifdef USE_MAP
@@ -103,7 +127,7 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 	uniform sampler2D alphaMap;
 #endif
 #if NUM_CLIPPING_PLANES > 0
-	#if ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 		varying vec3 vViewPosition;
 	#endif
 	uniform vec4 clippingPlanes[ NUM_CLIPPING_PLANES ];

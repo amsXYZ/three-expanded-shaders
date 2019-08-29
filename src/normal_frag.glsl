@@ -1,6 +1,6 @@
 #define NORMAL
 uniform float opacity;
-#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || ( defined( USE_NORMALMAP ) && ! defined( OBJECTSPACE_NORMALMAP ) )
+#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )
 	varying vec3 vViewPosition;
 #endif
 #ifndef FLAT_SHADED
@@ -27,6 +27,18 @@ vec4 packDepthToRGBA( const in float v ) {
 float unpackRGBAToDepth( const in vec4 v ) {
 	return dot( v, UnpackFactors );
 }
+vec4 encodeHalfRGBA ( vec2 v ) {
+	vec4 encoded = vec4( 0.0 );
+	const vec2 offset = vec2( 1.0 / 255.0, 0.0 );
+	encoded.xy = vec2( v.x, fract( v.x * 255.0 ) );
+	encoded.xy = encoded.xy - ( encoded.yy * offset );
+	encoded.zw = vec2( v.y, fract( v.y * 255.0 ) );
+	encoded.zw = encoded.zw - ( encoded.ww * offset );
+	return encoded;
+}
+vec2 decodeHalfRGBA( vec4 v ) {
+	return vec2( v.x + ( v.y / 255.0 ), v.z + ( v.w / 255.0 ) );
+}
 float viewZToOrthographicDepth( const in float viewZ, const in float near, const in float far ) {
 	return ( viewZ + near ) / ( near - far );
 }
@@ -39,7 +51,7 @@ float viewZToPerspectiveDepth( const in float viewZ, const in float near, const 
 float perspectiveDepthToViewZ( const in float invClipZ, const in float near, const in float far ) {
 	return ( near * far ) / ( ( far - near ) * invClipZ - far );
 }
-#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+#ifdef USE_UV
 	varying vec2 vUv;
 #endif
 #ifdef USE_BUMPMAP
@@ -68,32 +80,41 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #ifdef USE_NORMALMAP
 	uniform sampler2D normalMap;
 	uniform vec2 normalScale;
-	#ifdef OBJECTSPACE_NORMALMAP
-		uniform mat3 normalMatrix;
-	#else
-		vec3 perturbNormal2Arb( vec3 eye_pos, vec3 surf_norm ) {
-			vec3 q0 = vec3( dFdx( eye_pos.x ), dFdx( eye_pos.y ), dFdx( eye_pos.z ) );
-			vec3 q1 = vec3( dFdy( eye_pos.x ), dFdy( eye_pos.y ), dFdy( eye_pos.z ) );
-			vec2 st0 = dFdx( vUv.st );
-			vec2 st1 = dFdy( vUv.st );
-			float scale = sign( st1.t * st0.s - st0.t * st1.s );
-			vec3 S = normalize( ( q0 * st1.t - q1 * st0.t ) * scale );
-			vec3 T = normalize( ( - q0 * st1.s + q1 * st0.s ) * scale );
-			vec3 N = normalize( surf_norm );
-			mat3 tsn = mat3( S, T, N );
-			vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
-			mapN.xy *= normalScale;
+#endif
+#ifdef OBJECTSPACE_NORMALMAP
+	uniform mat3 normalMatrix;
+#endif
+#if ! defined ( USE_TANGENT ) && ( defined ( TANGENTSPACE_NORMALMAP ) || defined ( USE_CLEARCOAT_NORMALMAP ) )
+	vec3 perturbNormal2Arb( vec3 eye_pos, vec3 surf_norm, vec2 normalScale, in sampler2D normalMap ) {
+		vec3 q0 = vec3( dFdx( eye_pos.x ), dFdx( eye_pos.y ), dFdx( eye_pos.z ) );
+		vec3 q1 = vec3( dFdy( eye_pos.x ), dFdy( eye_pos.y ), dFdy( eye_pos.z ) );
+		vec2 st0 = dFdx( vUv.st );
+		vec2 st1 = dFdy( vUv.st );
+		float scale = sign( st1.t * st0.s - st0.t * st1.s );
+		vec3 S = normalize( ( q0 * st1.t - q1 * st0.t ) * scale );
+		vec3 T = normalize( ( - q0 * st1.s + q1 * st0.s ) * scale );
+		vec3 N = normalize( surf_norm );
+		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
+		mapN.xy *= normalScale;
+		#ifdef DOUBLE_SIDED
+			vec3 NfromST = cross( S, T );
+			if( dot( NfromST, N ) > 0.0 ) {
+				S *= -1.0;
+				T *= -1.0;
+			}
+		#else
 			mapN.xy *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
-			return normalize( tsn * mapN );
-		}
-	#endif
+		#endif
+		mat3 tsn = mat3( S, T, N );
+		return normalize( tsn * mapN );
+	}
 #endif
 #if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	uniform float logDepthBufFC;
 	varying float vFragDepth;
 #endif
 #if NUM_CLIPPING_PLANES > 0
-	#if ! defined( PHYSICAL ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 		varying vec3 vViewPosition;
 	#endif
 	uniform vec4 clippingPlanes[ NUM_CLIPPING_PLANES ];
@@ -137,25 +158,24 @@ void main() {
 		#endif
 	#endif
 #endif
-	#ifdef USE_NORMALMAP
+vec3 geometryNormal = normal;
 	#ifdef OBJECTSPACE_NORMALMAP
-		normal = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
-		#ifdef FLIP_SIDED
-			normal = - normal;
-		#endif
-		#ifdef DOUBLE_SIDED
-			normal = normal * ( float( gl_FrontFacing ) * 2.0 - 1.0 );
-		#endif
-		normal = normalize( normalMatrix * normal );
+	normal = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
+	#ifdef FLIP_SIDED
+		normal = - normal;
+	#endif
+	#ifdef DOUBLE_SIDED
+		normal = normal * ( float( gl_FrontFacing ) * 2.0 - 1.0 );
+	#endif
+	normal = normalize( normalMatrix * normal );
+#elif defined( TANGENTSPACE_NORMALMAP )
+	#ifdef USE_TANGENT
+		mat3 vTBN = mat3( tangent, bitangent, normal );
+		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
+		mapN.xy = normalScale * mapN.xy;
+		normal = normalize( vTBN * mapN );
 	#else
-		#ifdef USE_TANGENT
-			mat3 vTBN = mat3( tangent, bitangent, normal );
-			vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
-			mapN.xy = normalScale * mapN.xy;
-			normal = normalize( vTBN * mapN );
-		#else
-			normal = perturbNormal2Arb( -vViewPosition, normal );
-		#endif
+		normal = perturbNormal2Arb( -vViewPosition, normal, normalScale, normalMap );
 	#endif
 #elif defined( USE_BUMPMAP )
 	normal = perturbNormalArb( -vViewPosition, normal, dHdxy_fwd() );
