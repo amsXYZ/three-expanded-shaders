@@ -11,7 +11,9 @@ uniform float opacity;
 #define RECIPROCAL_PI2 0.15915494
 #define LOG2 1.442695
 #define EPSILON 1e-6
+#ifndef saturate
 #define saturate(a) clamp( a, 0.0, 1.0 )
+#endif
 #define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
@@ -76,6 +78,9 @@ mat3 transposeMat3( const in mat3 m ) {
 float linearToRelativeLuminance( const in vec3 color ) {
 	vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
 	return dot( weights, color.rgb );
+}
+bool isPerspectiveMatrix( mat4 m ) {
+  return m[ 2 ][ 3 ] == - 1.0;
 }
 vec3 packNormalToRGB( const in vec3 normal ) {
 	return normalize( normal ) * 0.5 + 0.5;
@@ -361,6 +366,7 @@ vec3 BRDF_Specular_Sheen( const in float roughness, const in vec3 L, const in Ge
 	return specularColor * D_Charlie( roughness, dotNH ) * V_Neubelt( dot(N, V), dot(N, L) );
 }
 #endif
+uniform bool receiveShadow;
 uniform vec3 ambientLightColor;
 uniform vec3 lightProbe[ 9 ];
 vec3 shGetIrradianceAt( in vec3 normal, in vec3 shCoefficients[ 9 ] ) {
@@ -708,11 +714,8 @@ void RE_IndirectDiffuse_BlinnPhong( const in vec3 irradiance, const in Geometric
 		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
 		mapN.xy *= normalScale;
 		#ifdef DOUBLE_SIDED
-			vec3 NfromST = cross( S, T );
-			if( dot( NfromST, N ) > 0.0 ) {
-				S *= -1.0;
-				T *= -1.0;
-			}
+			bool frontFacing = dot( cross( S, T ), N ) > 0.0;
+			mapN.xy *= ( float( frontFacing ) * 2.0 - 1.0 );
 		#else
 			mapN.xy *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
 		#endif
@@ -726,6 +729,7 @@ void RE_IndirectDiffuse_BlinnPhong( const in vec3 irradiance, const in Geometric
 #if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	uniform float logDepthBufFC;
 	varying float vFragDepth;
+	varying float vIsPerspective;
 #endif
 #if NUM_CLIPPING_PLANES > 0
 	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
@@ -755,7 +759,7 @@ void main() {
 	ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
 	vec3 totalEmissiveRadiance = emissive;
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
-	gl_FragDepthEXT = log2( vFragDepth ) * logDepthBufFC * 0.5;
+	gl_FragDepthEXT = vIsPerspective == 1.0 ? log2( vFragDepth ) * logDepthBufFC * 0.5 : gl_FragCoord.z;
 #endif
 	#ifdef USE_MAP
 	vec4 texelColor = texture2D( map, vUv );
@@ -844,7 +848,7 @@ IncidentLight directLight;
 		pointLight = pointLights[ i ];
 		getPointDirectLightIrradiance( pointLight, geometry, directLight );
 		#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_POINT_LIGHT_SHADOWS )
-		directLight.color *= all( bvec2( pointLight.shadow, directLight.visible ) ) ? getPointShadow( pointShadowMap[ i ], pointLight.shadowMapSize, pointLight.shadowBias, pointLight.shadowRadius, vPointShadowCoord[ i ], pointLight.shadowCameraNear, pointLight.shadowCameraFar ) : 1.0;
+		directLight.color *= all( bvec3( pointLight.shadow, directLight.visible, receiveShadow ) ) ? getPointShadow( pointShadowMap[ i ], pointLight.shadowMapSize, pointLight.shadowBias, pointLight.shadowRadius, vPointShadowCoord[ i ], pointLight.shadowCameraNear, pointLight.shadowCameraFar ) : 1.0;
 		#endif
 		RE_Direct( directLight, geometry, material, reflectedLight );
 	}
@@ -856,7 +860,7 @@ IncidentLight directLight;
 		spotLight = spotLights[ i ];
 		getSpotDirectLightIrradiance( spotLight, geometry, directLight );
 		#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_SPOT_LIGHT_SHADOWS )
-		directLight.color *= all( bvec2( spotLight.shadow, directLight.visible ) ) ? getShadow( spotShadowMap[ i ], spotLight.shadowMapSize, spotLight.shadowBias, spotLight.shadowRadius, vSpotShadowCoord[ i ] ) : 1.0;
+		directLight.color *= all( bvec3( spotLight.shadow, directLight.visible, receiveShadow ) ) ? getShadow( spotShadowMap[ i ], spotLight.shadowMapSize, spotLight.shadowBias, spotLight.shadowRadius, vSpotShadowCoord[ i ] ) : 1.0;
 		#endif
 		RE_Direct( directLight, geometry, material, reflectedLight );
 	}
@@ -868,7 +872,7 @@ IncidentLight directLight;
 		directionalLight = directionalLights[ i ];
 		getDirectionalDirectLightIrradiance( directionalLight, geometry, directLight );
 		#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
-		directLight.color *= all( bvec2( directionalLight.shadow, directLight.visible ) ) ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+		directLight.color *= all( bvec3( directionalLight.shadow, directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
 		#endif
 		RE_Direct( directLight, geometry, material, reflectedLight );
 	}

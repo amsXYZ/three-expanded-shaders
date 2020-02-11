@@ -13,7 +13,9 @@ varying vec3 vViewPosition;
 #define RECIPROCAL_PI2 0.15915494
 #define LOG2 1.442695
 #define EPSILON 1e-6
+#ifndef saturate
 #define saturate(a) clamp( a, 0.0, 1.0 )
+#endif
 #define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
@@ -79,6 +81,9 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
 	return dot( weights, color.rgb );
 }
+bool isPerspectiveMatrix( mat4 m ) {
+  return m[ 2 ][ 3 ] == - 1.0;
+}
 #ifdef USE_UV
 	varying vec2 vUv;
 #endif
@@ -141,11 +146,8 @@ float linearToRelativeLuminance( const in vec3 color ) {
 		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
 		mapN.xy *= normalScale;
 		#ifdef DOUBLE_SIDED
-			vec3 NfromST = cross( S, T );
-			if( dot( NfromST, N ) > 0.0 ) {
-				S *= -1.0;
-				T *= -1.0;
-			}
+			bool frontFacing = dot( cross( S, T ), N ) > 0.0;
+			mapN.xy *= ( float( frontFacing ) * 2.0 - 1.0 );
 		#else
 			mapN.xy *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
 		#endif
@@ -156,6 +158,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 #if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	uniform float logDepthBufFC;
 	varying float vFragDepth;
+	varying float vIsPerspective;
 #endif
 #if NUM_CLIPPING_PLANES > 0
 	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
@@ -183,7 +186,7 @@ void main() {
 #endif
 	vec4 diffuseColor = vec4( diffuse, opacity );
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
-	gl_FragDepthEXT = log2( vFragDepth ) * logDepthBufFC * 0.5;
+	gl_FragDepthEXT = vIsPerspective == 1.0 ? log2( vFragDepth ) * logDepthBufFC * 0.5 : gl_FragCoord.z;
 #endif
 	#ifdef USE_MAP
 	vec4 texelColor = texture2D( map, vUv );

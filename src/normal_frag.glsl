@@ -97,11 +97,8 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
 		mapN.xy *= normalScale;
 		#ifdef DOUBLE_SIDED
-			vec3 NfromST = cross( S, T );
-			if( dot( NfromST, N ) > 0.0 ) {
-				S *= -1.0;
-				T *= -1.0;
-			}
+			bool frontFacing = dot( cross( S, T ), N ) > 0.0;
+			mapN.xy *= ( float( frontFacing ) * 2.0 - 1.0 );
 		#else
 			mapN.xy *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
 		#endif
@@ -112,6 +109,7 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	uniform float logDepthBufFC;
 	varying float vFragDepth;
+	varying float vIsPerspective;
 #endif
 #if NUM_CLIPPING_PLANES > 0
 	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
@@ -138,7 +136,7 @@ void main() {
 	#endif
 #endif
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
-	gl_FragDepthEXT = log2( vFragDepth ) * logDepthBufFC * 0.5;
+	gl_FragDepthEXT = vIsPerspective == 1.0 ? log2( vFragDepth ) * logDepthBufFC * 0.5 : gl_FragCoord.z;
 #endif
 	#ifdef FLAT_SHADED
 	vec3 fdx = vec3( dFdx( vViewPosition.x ), dFdx( vViewPosition.y ), dFdx( vViewPosition.z ) );

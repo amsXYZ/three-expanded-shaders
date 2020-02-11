@@ -8,7 +8,9 @@
 #define RECIPROCAL_PI2 0.15915494
 #define LOG2 1.442695
 #define EPSILON 1e-6
+#ifndef saturate
 #define saturate(a) clamp( a, 0.0, 1.0 )
+#endif
 #define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
@@ -74,6 +76,9 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
 	return dot( weights, color.rgb );
 }
+bool isPerspectiveMatrix( mat4 m ) {
+  return m[ 2 ][ 3 ] == - 1.0;
+}
 vec3 packNormalToRGB( const in vec3 normal ) {
 	return normalize( normal ) * 0.5 + 0.5;
 }
@@ -127,6 +132,7 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	uniform float logDepthBufFC;
 	varying float vFragDepth;
+	varying float vIsPerspective;
 #endif
 #if NUM_CLIPPING_PLANES > 0
 	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
@@ -168,7 +174,7 @@ void main() {
 	if ( diffuseColor.a < ALPHATEST ) discard;
 #endif
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
-	gl_FragDepthEXT = log2( vFragDepth ) * logDepthBufFC * 0.5;
+	gl_FragDepthEXT = vIsPerspective == 1.0 ? log2( vFragDepth ) * logDepthBufFC * 0.5 : gl_FragCoord.z;
 #endif
 	#if DEPTH_PACKING == 3200
 		gl_FragColor = vec4( vec3( 1.0 - gl_FragCoord.z ), opacity );

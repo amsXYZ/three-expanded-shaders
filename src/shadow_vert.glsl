@@ -17,10 +17,18 @@
 #endif
 void main() {
 	vec3 transformed = vec3( position );
-	vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+	vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+	mvPosition = instanceMatrix * mvPosition;
+#endif
+mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 	#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )
-	vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
+	vec4 worldPosition = vec4( transformed, 1.0 );
+	#ifdef USE_INSTANCING
+		worldPosition = instanceMatrix * worldPosition;
+	#endif
+	worldPosition = modelMatrix * worldPosition;
 #endif
 	#ifdef USE_SHADOWMAP
 	#if NUM_DIR_LIGHT_SHADOWS > 0
