@@ -125,16 +125,11 @@ vec4 packDepthToRGBA( const in float v ) {
 float unpackRGBAToDepth( const in vec4 v ) {
 	return dot( v, UnpackFactors );
 }
-vec4 encodeHalfRGBA ( vec2 v ) {
-	vec4 encoded = vec4( 0.0 );
-	const vec2 offset = vec2( 1.0 / 255.0, 0.0 );
-	encoded.xy = vec2( v.x, fract( v.x * 255.0 ) );
-	encoded.xy = encoded.xy - ( encoded.yy * offset );
-	encoded.zw = vec2( v.y, fract( v.y * 255.0 ) );
-	encoded.zw = encoded.zw - ( encoded.ww * offset );
-	return encoded;
+vec4 pack2HalfToRGBA( vec2 v ) {
+	vec4 r = vec4( v.x, fract( v.x * 255.0 ), v.y, fract( v.y * 255.0 ));
+	return vec4( r.x - r.y / 255.0, r.y, r.z - r.w / 255.0, r.w);
 }
-vec2 decodeHalfRGBA( vec4 v ) {
+vec2 unpack2HalfToRGBA( vec4 v ) {
 	return vec2( v.x + ( v.y / 255.0 ), v.z + ( v.w / 255.0 ) );
 }
 float viewZToOrthographicDepth( const in float viewZ, const in float near, const in float far ) {
@@ -786,7 +781,7 @@ float computeSpecularOcclusion( const in float dotNV, const in float ambientOccl
 		return step( compare, unpackRGBAToDepth( texture2D( depths, uv ) ) );
 	}
 	vec2 texture2DDistribution( sampler2D shadow, vec2 uv ) {
-		return decodeHalfRGBA( texture2D( shadow, uv ) );
+		return unpack2HalfToRGBA( texture2D( shadow, uv ) );
 	}
 	float VSMShadow (sampler2D shadow, vec2 uv, float compare ){
 		float occlusion = 1.0;
@@ -951,7 +946,7 @@ float computeSpecularOcclusion( const in float dotNV, const in float ambientOccl
 	uniform mat3 normalMatrix;
 #endif
 #if ! defined ( USE_TANGENT ) && ( defined ( TANGENTSPACE_NORMALMAP ) || defined ( USE_CLEARCOAT_NORMALMAP ) )
-	vec3 perturbNormal2Arb( vec3 eye_pos, vec3 surf_norm, vec2 normalScale, in sampler2D normalMap ) {
+	vec3 perturbNormal2Arb( vec3 eye_pos, vec3 surf_norm, vec3 mapN ) {
 		vec3 q0 = vec3( dFdx( eye_pos.x ), dFdx( eye_pos.y ), dFdx( eye_pos.z ) );
 		vec3 q1 = vec3( dFdy( eye_pos.x ), dFdy( eye_pos.y ), dFdy( eye_pos.z ) );
 		vec2 st0 = dFdx( vUv.st );
@@ -960,15 +955,8 @@ float computeSpecularOcclusion( const in float dotNV, const in float ambientOccl
 		vec3 S = normalize( ( q0 * st1.t - q1 * st0.t ) * scale );
 		vec3 T = normalize( ( - q0 * st1.s + q1 * st0.s ) * scale );
 		vec3 N = normalize( surf_norm );
-		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
-		mapN.xy *= normalScale;
-		#ifdef DOUBLE_SIDED
-			bool frontFacing = dot( cross( S, T ), N ) > 0.0;
-			mapN.xy *= ( float( frontFacing ) * 2.0 - 1.0 );
-		#else
-			mapN.xy *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
-		#endif
 		mat3 tsn = mat3( S, T, N );
+		mapN.xy *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
 		return normalize( tsn * mapN );
 	}
 #endif
@@ -1057,6 +1045,9 @@ void main() {
 			tangent = tangent * ( float( gl_FrontFacing ) * 2.0 - 1.0 );
 			bitangent = bitangent * ( float( gl_FrontFacing ) * 2.0 - 1.0 );
 		#endif
+		#if defined( TANGENTSPACE_NORMALMAP ) || defined( USE_CLEARCOAT_NORMALMAP )
+			mat3 vTBN = mat3( tangent, bitangent, normal );
+		#endif
 	#endif
 #endif
 vec3 geometryNormal = normal;
@@ -1070,13 +1061,12 @@ vec3 geometryNormal = normal;
 	#endif
 	normal = normalize( normalMatrix * normal );
 #elif defined( TANGENTSPACE_NORMALMAP )
+	vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
+	mapN.xy *= normalScale;
 	#ifdef USE_TANGENT
-		mat3 vTBN = mat3( tangent, bitangent, normal );
-		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
-		mapN.xy = normalScale * mapN.xy;
 		normal = normalize( vTBN * mapN );
 	#else
-		normal = perturbNormal2Arb( -vViewPosition, normal, normalScale, normalMap );
+		normal = perturbNormal2Arb( -vViewPosition, normal, mapN );
 	#endif
 #elif defined( USE_BUMPMAP )
 	normal = perturbNormalArb( -vViewPosition, normal, dHdxy_fwd() );
@@ -1085,13 +1075,12 @@ vec3 geometryNormal = normal;
 	vec3 clearcoatNormal = geometryNormal;
 #endif
 	#ifdef USE_CLEARCOAT_NORMALMAP
+	vec3 clearcoatMapN = texture2D( clearcoatNormalMap, vUv ).xyz * 2.0 - 1.0;
+	clearcoatMapN.xy *= clearcoatNormalScale;
 	#ifdef USE_TANGENT
-		mat3 vTBN = mat3( tangent, bitangent, clearcoatNormal );
-		vec3 mapN = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
-		mapN.xy = clearcoatNormalScale * mapN.xy;
-		clearcoatNormal = normalize( vTBN * mapN );
+		clearcoatNormal = normalize( vTBN * clearcoatMapN );
 	#else
-		clearcoatNormal = perturbNormal2Arb( - vViewPosition, clearcoatNormal, clearcoatNormalScale, clearcoatNormalMap );
+		clearcoatNormal = perturbNormal2Arb( - vViewPosition, clearcoatNormal, clearcoatMapN );
 	#endif
 #endif
 	#ifdef USE_EMISSIVEMAP

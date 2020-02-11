@@ -403,6 +403,7 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 	varying float fogDepth;
 #endif
 #ifdef USE_MORPHTARGETS
+	uniform float morphTargetBaseInfluence;
 	#ifndef USE_MORPHNORMALS
 	uniform float morphTargetInfluences[ 8 ];
 	#else
@@ -477,10 +478,11 @@ void main() {
 	vec3 objectTangent = vec3( tangent.xyz );
 #endif
 	#ifdef USE_MORPHNORMALS
-	objectNormal += ( morphNormal0 - normal ) * morphTargetInfluences[ 0 ];
-	objectNormal += ( morphNormal1 - normal ) * morphTargetInfluences[ 1 ];
-	objectNormal += ( morphNormal2 - normal ) * morphTargetInfluences[ 2 ];
-	objectNormal += ( morphNormal3 - normal ) * morphTargetInfluences[ 3 ];
+	objectNormal *= morphTargetBaseInfluence;
+	objectNormal += morphNormal0 * morphTargetInfluences[ 0 ];
+	objectNormal += morphNormal1 * morphTargetInfluences[ 1 ];
+	objectNormal += morphNormal2 * morphTargetInfluences[ 2 ];
+	objectNormal += morphNormal3 * morphTargetInfluences[ 3 ];
 #endif
 	#ifdef USE_SKINNING
 	mat4 boneMatX = getBoneMatrix( skinIndex.x );
@@ -516,15 +518,16 @@ transformedNormal = normalMatrix * transformedNormal;
 #endif
 	vec3 transformed = vec3( position );
 	#ifdef USE_MORPHTARGETS
-	transformed += ( morphTarget0 - position ) * morphTargetInfluences[ 0 ];
-	transformed += ( morphTarget1 - position ) * morphTargetInfluences[ 1 ];
-	transformed += ( morphTarget2 - position ) * morphTargetInfluences[ 2 ];
-	transformed += ( morphTarget3 - position ) * morphTargetInfluences[ 3 ];
+	transformed *= morphTargetBaseInfluence;
+	transformed += morphTarget0 * morphTargetInfluences[ 0 ];
+	transformed += morphTarget1 * morphTargetInfluences[ 1 ];
+	transformed += morphTarget2 * morphTargetInfluences[ 2 ];
+	transformed += morphTarget3 * morphTargetInfluences[ 3 ];
 	#ifndef USE_MORPHNORMALS
-	transformed += ( morphTarget4 - position ) * morphTargetInfluences[ 4 ];
-	transformed += ( morphTarget5 - position ) * morphTargetInfluences[ 5 ];
-	transformed += ( morphTarget6 - position ) * morphTargetInfluences[ 6 ];
-	transformed += ( morphTarget7 - position ) * morphTargetInfluences[ 7 ];
+	transformed += morphTarget4 * morphTargetInfluences[ 4 ];
+	transformed += morphTarget5 * morphTargetInfluences[ 5 ];
+	transformed += morphTarget6 * morphTargetInfluences[ 6 ];
+	transformed += morphTarget7 * morphTargetInfluences[ 7 ];
 	#endif
 #endif
 	#ifdef USE_SKINNING
