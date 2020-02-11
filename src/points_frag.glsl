@@ -152,9 +152,6 @@ void main() {
 #endif
 	outgoingLight = diffuseColor.rgb;
 	gl_FragColor = vec4( outgoingLight, diffuseColor.a );
-	#ifdef PREMULTIPLIED_ALPHA
-	gl_FragColor.rgb *= gl_FragColor.a;
-#endif
 	#if defined( TONE_MAPPING )
 	gl_FragColor.rgb = toneMapping( gl_FragColor.rgb );
 #endif
@@ -166,5 +163,8 @@ void main() {
 		float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
 	#endif
 	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif
+	#ifdef PREMULTIPLIED_ALPHA
+	gl_FragColor.rgb *= gl_FragColor.a;
 #endif
 }
