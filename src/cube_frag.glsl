@@ -145,7 +145,7 @@ void main() {
 	#ifdef ENVMAP_TYPE_CUBE
 		vec4 envColor = textureCube( envMap, vec3( flipEnvMap * reflectVec.x, reflectVec.yz ) );
 	#elif defined( ENVMAP_TYPE_CUBE_UV )
-		vec4 envColor = textureCubeUV( envMap, vec3( flipEnvMap * reflectVec.x, reflectVec.yz ), 0.0 );
+		vec4 envColor = textureCubeUV( envMap, reflectVec, 0.0 );
 	#elif defined( ENVMAP_TYPE_EQUIREC )
 		vec2 sampleUV;
 		reflectVec = normalize( reflectVec );

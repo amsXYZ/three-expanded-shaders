@@ -344,7 +344,7 @@ void main() {
 	#ifdef ENVMAP_TYPE_CUBE
 		vec4 envColor = textureCube( envMap, vec3( flipEnvMap * reflectVec.x, reflectVec.yz ) );
 	#elif defined( ENVMAP_TYPE_CUBE_UV )
-		vec4 envColor = textureCubeUV( envMap, vec3( flipEnvMap * reflectVec.x, reflectVec.yz ), 0.0 );
+		vec4 envColor = textureCubeUV( envMap, reflectVec, 0.0 );
 	#elif defined( ENVMAP_TYPE_EQUIREC )
 		vec2 sampleUV;
 		reflectVec = normalize( reflectVec );
@@ -370,9 +370,6 @@ void main() {
 	#endif
 #endif
 	gl_FragColor = vec4( outgoingLight, diffuseColor.a );
-	#ifdef PREMULTIPLIED_ALPHA
-	gl_FragColor.rgb *= gl_FragColor.a;
-#endif
 	#if defined( TONE_MAPPING )
 	gl_FragColor.rgb = toneMapping( gl_FragColor.rgb );
 #endif
@@ -384,5 +381,8 @@ void main() {
 		float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
 	#endif
 	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif
+	#ifdef PREMULTIPLIED_ALPHA
+	gl_FragColor.rgb *= gl_FragColor.a;
 #endif
 }

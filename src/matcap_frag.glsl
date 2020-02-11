@@ -246,9 +246,6 @@ vec3 geometryNormal = normal;
 	#endif
 	vec3 outgoingLight = diffuseColor.rgb * matcapColor.rgb;
 	gl_FragColor = vec4( outgoingLight, diffuseColor.a );
-	#ifdef PREMULTIPLIED_ALPHA
-	gl_FragColor.rgb *= gl_FragColor.a;
-#endif
 	#if defined( TONE_MAPPING )
 	gl_FragColor.rgb = toneMapping( gl_FragColor.rgb );
 #endif
@@ -260,5 +257,8 @@ vec3 geometryNormal = normal;
 		float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
 	#endif
 	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif
+	#ifdef PREMULTIPLIED_ALPHA
+	gl_FragColor.rgb *= gl_FragColor.a;
 #endif
 }
