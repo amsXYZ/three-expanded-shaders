@@ -7,7 +7,9 @@ uniform float scale;
 #define RECIPROCAL_PI2 0.15915494
 #define LOG2 1.442695
 #define EPSILON 1e-6
+#ifndef saturate
 #define saturate(a) clamp( a, 0.0, 1.0 )
+#endif
 #define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
@@ -73,6 +75,9 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
 	return dot( weights, color.rgb );
 }
+bool isPerspectiveMatrix( mat4 m ) {
+  return m[ 2 ][ 3 ] == - 1.0;
+}
 #ifdef USE_COLOR
 	varying vec3 vColor;
 #endif
@@ -89,6 +94,7 @@ float linearToRelativeLuminance( const in vec3 color ) {
 #ifdef USE_LOGDEPTHBUF
 	#ifdef USE_LOGDEPTHBUF_EXT
 		varying float vFragDepth;
+		varying float vIsPerspective;
 	#else
 		uniform float logDepthBufFC;
 	#endif
@@ -113,26 +119,37 @@ void main() {
 	transformed += ( morphTarget7 - position ) * morphTargetInfluences[ 7 ];
 	#endif
 #endif
-	vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+	vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+	mvPosition = instanceMatrix * mvPosition;
+#endif
+mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 	gl_PointSize = size;
 	#ifdef USE_SIZEATTENUATION
-		bool isPerspective = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 );
+		bool isPerspective = isPerspectiveMatrix( projectionMatrix );
 		if ( isPerspective ) gl_PointSize *= ( scale / - mvPosition.z );
 	#endif
 	#ifdef USE_LOGDEPTHBUF
 	#ifdef USE_LOGDEPTHBUF_EXT
 		vFragDepth = 1.0 + gl_Position.w;
+		vIsPerspective = float( isPerspectiveMatrix( projectionMatrix ) );
 	#else
-		gl_Position.z = log2( max( EPSILON, gl_Position.w + 1.0 ) ) * logDepthBufFC - 1.0;
-		gl_Position.z *= gl_Position.w;
+		if ( isPerspectiveMatrix( projectionMatrix ) ) {
+			gl_Position.z = log2( max( EPSILON, gl_Position.w + 1.0 ) ) * logDepthBufFC - 1.0;
+			gl_Position.z *= gl_Position.w;
+		}
 	#endif
 #endif
 	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
 	vViewPosition = - mvPosition.xyz;
 #endif
 	#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )
-	vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
+	vec4 worldPosition = vec4( transformed, 1.0 );
+	#ifdef USE_INSTANCING
+		worldPosition = instanceMatrix * worldPosition;
+	#endif
+	worldPosition = modelMatrix * worldPosition;
 #endif
 	#ifdef USE_FOG
 	fogDepth = -mvPosition.z;

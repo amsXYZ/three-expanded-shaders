@@ -6,7 +6,9 @@ varying vec3 vWorldDirection;
 #define RECIPROCAL_PI2 0.15915494
 #define LOG2 1.442695
 #define EPSILON 1e-6
+#ifndef saturate
 #define saturate(a) clamp( a, 0.0, 1.0 )
+#endif
 #define whiteComplement(a) ( 1.0 - saturate( a ) )
 float pow2( const in float x ) { return x*x; }
 float pow3( const in float x ) { return x*x*x; }
@@ -72,9 +74,16 @@ float linearToRelativeLuminance( const in vec3 color ) {
 	vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
 	return dot( weights, color.rgb );
 }
+bool isPerspectiveMatrix( mat4 m ) {
+  return m[ 2 ][ 3 ] == - 1.0;
+}
 void main() {
 	vWorldDirection = transformDirection( position, modelMatrix );
 	vec3 transformed = vec3( position );
-	vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+	vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+	mvPosition = instanceMatrix * mvPosition;
+#endif
+mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 }
