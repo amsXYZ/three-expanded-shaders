@@ -160,7 +160,7 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #ifdef USE_COLOR
 	varying vec3 vColor;
 #endif
-#ifdef USE_UV
+#if ( defined( USE_UV ) && ! defined( UVS_VERTEX_ONLY ) )
 	varying vec2 vUv;
 #endif
 #if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
@@ -1015,7 +1015,7 @@ void main() {
 	ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
 	vec3 totalEmissiveRadiance = emissive;
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
-	gl_FragDepthEXT = vIsPerspective == 1.0 ? log2( vFragDepth ) * logDepthBufFC * 0.5 : gl_FragCoord.z;
+	gl_FragDepthEXT = vIsPerspective == 0.0 ? gl_FragCoord.z : log2( vFragDepth ) * logDepthBufFC * 0.5;
 #endif
 	#ifdef USE_MAP
 	vec4 texelColor = texture2D( map, vUv );
@@ -1117,7 +1117,7 @@ material.specularRoughness = clamp( roughnessFactor, 0.04, 1.0 );
 GeometricContext geometry;
 geometry.position = - vViewPosition;
 geometry.normal = normal;
-geometry.viewDir = normalize( vViewPosition );
+geometry.viewDir = ( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( vViewPosition );
 #ifdef CLEARCOAT
 	geometry.clearcoatNormal = clearcoatNormal;
 #endif

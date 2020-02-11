@@ -79,7 +79,11 @@ bool isPerspectiveMatrix( mat4 m ) {
   return m[ 2 ][ 3 ] == - 1.0;
 }
 #ifdef USE_UV
-	varying vec2 vUv;
+	#ifdef UVS_VERTEX_ONLY
+		vec2 vUv;
+	#else
+		varying vec2 vUv;
+	#endif
 	uniform mat3 uvTransform;
 #endif
 #ifdef USE_FOG
