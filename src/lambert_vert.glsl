@@ -84,7 +84,11 @@ bool isPerspectiveMatrix( mat4 m ) {
   return m[ 2 ][ 3 ] == - 1.0;
 }
 #ifdef USE_UV
-	varying vec2 vUv;
+	#ifdef UVS_VERTEX_ONLY
+		vec2 vUv;
+	#else
+		varying vec2 vUv;
+	#endif
 	uniform mat3 uvTransform;
 #endif
 #if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
@@ -563,7 +567,12 @@ gl_Position = projectionMatrix * mvPosition;
 	#ifdef ENV_WORLDPOS
 		vWorldPosition = worldPosition.xyz;
 	#else
-		vec3 cameraToVertex = normalize( worldPosition.xyz - cameraPosition );
+		vec3 cameraToVertex;
+		if ( isOrthographic ) { 
+			cameraToVertex = normalize( vec3( - viewMatrix[ 0 ][ 2 ], - viewMatrix[ 1 ][ 2 ], - viewMatrix[ 2 ][ 2 ] ) );
+		} else {
+			cameraToVertex = normalize( worldPosition.xyz - cameraPosition );
+		}
 		vec3 worldNormal = inverseTransformDirection( transformedNormal, viewMatrix );
 		#ifdef ENVMAP_MODE_REFLECTION
 			vReflect = reflect( cameraToVertex, worldNormal );
@@ -576,7 +585,7 @@ gl_Position = projectionMatrix * mvPosition;
 GeometricContext geometry;
 geometry.position = mvPosition.xyz;
 geometry.normal = normalize( transformedNormal );
-geometry.viewDir = normalize( -mvPosition.xyz );
+geometry.viewDir = ( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( -mvPosition.xyz );
 GeometricContext backGeometry;
 backGeometry.position = geometry.position;
 backGeometry.normal = -geometry.normal;

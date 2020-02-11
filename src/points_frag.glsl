@@ -81,9 +81,14 @@ bool isPerspectiveMatrix( mat4 m ) {
 #ifdef USE_COLOR
 	varying vec3 vColor;
 #endif
-#ifdef USE_MAP
+#if defined( USE_MAP ) || defined( USE_ALPHAMAP )
 	uniform mat3 uvTransform;
+#endif
+#ifdef USE_MAP
 	uniform sampler2D map;
+#endif
+#ifdef USE_ALPHAMAP
+	uniform sampler2D alphaMap;
 #endif
 #ifdef USE_FOG
 	uniform vec3 fogColor;
@@ -127,12 +132,17 @@ void main() {
 	vec3 outgoingLight = vec3( 0.0 );
 	vec4 diffuseColor = vec4( diffuse, opacity );
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
-	gl_FragDepthEXT = vIsPerspective == 1.0 ? log2( vFragDepth ) * logDepthBufFC * 0.5 : gl_FragCoord.z;
+	gl_FragDepthEXT = vIsPerspective == 0.0 ? gl_FragCoord.z : log2( vFragDepth ) * logDepthBufFC * 0.5;
 #endif
-	#ifdef USE_MAP
+	#if defined( USE_MAP ) || defined( USE_ALPHAMAP )
 	vec2 uv = ( uvTransform * vec3( gl_PointCoord.x, 1.0 - gl_PointCoord.y, 1 ) ).xy;
+#endif
+#ifdef USE_MAP
 	vec4 mapTexel = texture2D( map, uv );
 	diffuseColor *= mapTexelToLinear( mapTexel );
+#endif
+#ifdef USE_ALPHAMAP
+	diffuseColor.a *= texture2D( alphaMap, uv ).g;
 #endif
 	#ifdef USE_COLOR
 	diffuseColor.rgb *= vColor;
