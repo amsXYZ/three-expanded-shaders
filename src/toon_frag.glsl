@@ -1,35 +1,9 @@
-#define STANDARD
-#ifdef PHYSICAL
-	#define REFLECTIVITY
-	#define CLEARCOAT
-	#define TRANSPARENCY
-#endif
+#define TOON
 uniform vec3 diffuse;
 uniform vec3 emissive;
-uniform float roughness;
-uniform float metalness;
+uniform vec3 specular;
+uniform float shininess;
 uniform float opacity;
-#ifdef TRANSPARENCY
-	uniform float transparency;
-#endif
-#ifdef REFLECTIVITY
-	uniform float reflectivity;
-#endif
-#ifdef CLEARCOAT
-	uniform float clearcoat;
-	uniform float clearcoatRoughness;
-#endif
-#ifdef USE_SHEEN
-	uniform vec3 sheen;
-#endif
-varying vec3 vViewPosition;
-#ifndef FLAT_SHADED
-	varying vec3 vNormal;
-	#ifdef USE_TANGENT
-		varying vec3 vTangent;
-		varying vec3 vBitangent;
-	#endif
-#endif
 #define PI 3.14159265359
 #define PI2 6.28318530718
 #define PI_HALF 1.5707963267949
@@ -177,6 +151,28 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 #endif
 #ifdef USE_EMISSIVEMAP
 	uniform sampler2D emissiveMap;
+#endif
+#ifdef USE_GRADIENTMAP
+	uniform sampler2D gradientMap;
+#endif
+vec3 getGradientIrradiance( vec3 normal, vec3 lightDirection ) {
+	float dotNL = dot( normal, lightDirection );
+	vec2 coord = vec2( dotNL * 0.5 + 0.5, 0.0 );
+	#ifdef USE_GRADIENTMAP
+		return texture2D( gradientMap, coord ).rgb;
+	#else
+		return ( coord.x < 0.7 ) ? vec3( 0.7 ) : vec3( 1.0 );
+	#endif
+}
+#ifdef USE_FOG
+	uniform vec3 fogColor;
+	varying float fogDepth;
+	#ifdef FOG_EXP2
+		uniform float fogDensity;
+	#else
+		uniform float fogNear;
+		uniform float fogFar;
+	#endif
 #endif
 vec2 integrateSpecularBRDF( const in float dotNV, const in float roughness ) {
 	const vec4 c0 = vec4( - 1, - 0.0275, - 0.572, 0.022 );
@@ -342,208 +338,6 @@ vec3 BRDF_Specular_Sheen( const in float roughness, const in vec3 L, const in Ge
 	return specularColor * D_Charlie( roughness, dotNH ) * V_Neubelt( dot(N, V), dot(N, L) );
 }
 #endif
-#ifdef ENVMAP_TYPE_CUBE_UV
-#define cubeUV_maxMipLevel 8.0
-#define cubeUV_minMipLevel 4.0
-#define cubeUV_maxTileSize 256.0
-#define cubeUV_minTileSize 16.0
-float getFace(vec3 direction) {
-    vec3 absDirection = abs(direction);
-    float face = -1.0;
-    if (absDirection.x > absDirection.z) {
-      if (absDirection.x > absDirection.y)
-        face = direction.x > 0.0 ? 0.0 : 3.0;
-      else
-        face = direction.y > 0.0 ? 1.0 : 4.0;
-    } else {
-      if (absDirection.z > absDirection.y)
-        face = direction.z > 0.0 ? 2.0 : 5.0;
-      else
-        face = direction.y > 0.0 ? 1.0 : 4.0;
-    }
-    return face;
-}
-vec2 getUV(vec3 direction, float face) {
-    vec2 uv;
-    if (face == 0.0) {
-      uv = vec2(-direction.z, direction.y) / abs(direction.x);
-    } else if (face == 1.0) {
-      uv = vec2(direction.x, -direction.z) / abs(direction.y);
-    } else if (face == 2.0) {
-      uv = direction.xy / abs(direction.z);
-    } else if (face == 3.0) {
-      uv = vec2(direction.z, direction.y) / abs(direction.x);
-    } else if (face == 4.0) {
-      uv = direction.xz / abs(direction.y);
-    } else {
-      uv = vec2(-direction.x, direction.y) / abs(direction.z);
-    }
-    return 0.5 * (uv + 1.0);
-}
-vec3 bilinearCubeUV(sampler2D envMap, vec3 direction, float mipInt) {
-  float face = getFace(direction);
-  float filterInt = max(cubeUV_minMipLevel - mipInt, 0.0);
-  mipInt = max(mipInt, cubeUV_minMipLevel);
-  float faceSize = exp2(mipInt);
-  float texelSize = 1.0 / (3.0 * cubeUV_maxTileSize);
-  vec2 uv = getUV(direction, face) * (faceSize - 1.0);
-  vec2 f = fract(uv);
-  uv += 0.5 - f;
-  if (face > 2.0) {
-    uv.y += faceSize;
-    face -= 3.0;
-  }
-  uv.x += face * faceSize;
-  if(mipInt < cubeUV_maxMipLevel){
-    uv.y += 2.0 * cubeUV_maxTileSize;
-  }
-  uv.y += filterInt * 2.0 * cubeUV_minTileSize;
-  uv.x += 3.0 * max(0.0, cubeUV_maxTileSize - 2.0 * faceSize);
-  uv *= texelSize;
-  vec3 tl = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
-  uv.x += texelSize;
-  vec3 tr = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
-  uv.y += texelSize;
-  vec3 br = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
-  uv.x -= texelSize;
-  vec3 bl = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
-  vec3 tm = mix(tl, tr, f.x);
-  vec3 bm = mix(bl, br, f.x);
-  return mix(tm, bm, f.y);
-}
-#define r0 1.0
-#define v0 0.339
-#define m0 -2.0
-#define r1 0.8
-#define v1 0.276
-#define m1 -1.0
-#define r4 0.4
-#define v4 0.046
-#define m4 2.0
-#define r5 0.305
-#define v5 0.016
-#define m5 3.0
-#define r6 0.21
-#define v6 0.0038
-#define m6 4.0
-float roughnessToMip(float roughness) {
-  float mip = 0.0;
-  if (roughness >= r1) {
-    mip = (r0 - roughness) * (m1 - m0) / (r0 - r1) + m0;
-  } else if (roughness >= r4) {
-    mip = (r1 - roughness) * (m4 - m1) / (r1 - r4) + m1;
-  } else if (roughness >= r5) {
-    mip = (r4 - roughness) * (m5 - m4) / (r4 - r5) + m4;
-  } else if (roughness >= r6) {
-    mip = (r5 - roughness) * (m6 - m5) / (r5 - r6) + m5;
-  } else {
-    mip = -2.0 * log2(1.16 * roughness);  }
-  return mip;
-}
-vec4 textureCubeUV(sampler2D envMap, vec3 sampleDir, float roughness) {
-  float mip = clamp(roughnessToMip(roughness), m0, cubeUV_maxMipLevel);
-  float mipF = fract(mip);
-  float mipInt = floor(mip);
-  vec3 color0 = bilinearCubeUV(envMap, sampleDir, mipInt);
-  if (mipF == 0.0) {
-    return vec4(color0, 1.0);
-  } else {
-    vec3 color1 = bilinearCubeUV(envMap, sampleDir, mipInt + 1.0);
-    return vec4(mix(color0, color1, mipF), 1.0);
-  }
-}
-#endif
-#ifdef USE_ENVMAP
-	uniform float envMapIntensity;
-	uniform float flipEnvMap;
-	uniform int maxMipLevel;
-	#ifdef ENVMAP_TYPE_CUBE
-		uniform samplerCube envMap;
-	#else
-		uniform sampler2D envMap;
-	#endif
-	
-#endif
-#if defined( USE_ENVMAP )
-	#ifdef ENVMAP_MODE_REFRACTION
-		uniform float refractionRatio;
-	#endif
-	vec3 getLightProbeIndirectIrradiance( const in GeometricContext geometry, const in int maxMIPLevel ) {
-		vec3 worldNormal = inverseTransformDirection( geometry.normal, viewMatrix );
-		#ifdef ENVMAP_TYPE_CUBE
-			vec3 queryVec = vec3( flipEnvMap * worldNormal.x, worldNormal.yz );
-			#ifdef TEXTURE_LOD_EXT
-				vec4 envMapColor = textureCubeLodEXT( envMap, queryVec, float( maxMIPLevel ) );
-			#else
-				vec4 envMapColor = textureCube( envMap, queryVec, float( maxMIPLevel ) );
-			#endif
-			envMapColor.rgb = envMapTexelToLinear( envMapColor ).rgb;
-		#elif defined( ENVMAP_TYPE_CUBE_UV )
-			vec3 queryVec = vec3( flipEnvMap * worldNormal.x, worldNormal.yz );
-			vec4 envMapColor = textureCubeUV( envMap, queryVec, 1.0 );
-		#else
-			vec4 envMapColor = vec4( 0.0 );
-		#endif
-		return PI * envMapColor.rgb * envMapIntensity;
-	}
-	float getSpecularMIPLevel( const in float roughness, const in int maxMIPLevel ) {
-		float maxMIPLevelScalar = float( maxMIPLevel );
-		float sigma = PI * roughness * roughness / ( 1.0 + roughness );
-		float desiredMIPLevel = maxMIPLevelScalar + log2( sigma );
-		return clamp( desiredMIPLevel, 0.0, maxMIPLevelScalar );
-	}
-	vec3 getLightProbeIndirectRadiance( const in vec3 viewDir, const in vec3 normal, const in float roughness, const in int maxMIPLevel ) {
-		#ifdef ENVMAP_MODE_REFLECTION
-		  vec3 reflectVec = reflect( -viewDir, normal );
-		  reflectVec = normalize( mix( reflectVec, normal, roughness * roughness) );
-		#else
-		  vec3 reflectVec = refract( -viewDir, normal, refractionRatio );
-		#endif
-		reflectVec = inverseTransformDirection( reflectVec, viewMatrix );
-		float specularMIPLevel = getSpecularMIPLevel( roughness, maxMIPLevel );
-		#ifdef ENVMAP_TYPE_CUBE
-			vec3 queryReflectVec = vec3( flipEnvMap * reflectVec.x, reflectVec.yz );
-			#ifdef TEXTURE_LOD_EXT
-				vec4 envMapColor = textureCubeLodEXT( envMap, queryReflectVec, specularMIPLevel );
-			#else
-				vec4 envMapColor = textureCube( envMap, queryReflectVec, specularMIPLevel );
-			#endif
-			envMapColor.rgb = envMapTexelToLinear( envMapColor ).rgb;
-		#elif defined( ENVMAP_TYPE_CUBE_UV )
-			vec3 queryReflectVec = vec3( flipEnvMap * reflectVec.x, reflectVec.yz );
-			vec4 envMapColor = textureCubeUV( envMap, queryReflectVec, roughness );
-		#elif defined( ENVMAP_TYPE_EQUIREC )
-			vec2 sampleUV;
-			sampleUV.y = asin( clamp( reflectVec.y, - 1.0, 1.0 ) ) * RECIPROCAL_PI + 0.5;
-			sampleUV.x = atan( reflectVec.z, reflectVec.x ) * RECIPROCAL_PI2 + 0.5;
-			#ifdef TEXTURE_LOD_EXT
-				vec4 envMapColor = texture2DLodEXT( envMap, sampleUV, specularMIPLevel );
-			#else
-				vec4 envMapColor = texture2D( envMap, sampleUV, specularMIPLevel );
-			#endif
-			envMapColor.rgb = envMapTexelToLinear( envMapColor ).rgb;
-		#elif defined( ENVMAP_TYPE_SPHERE )
-			vec3 reflectView = normalize( ( viewMatrix * vec4( reflectVec, 0.0 ) ).xyz + vec3( 0.0,0.0,1.0 ) );
-			#ifdef TEXTURE_LOD_EXT
-				vec4 envMapColor = texture2DLodEXT( envMap, reflectView.xy * 0.5 + 0.5, specularMIPLevel );
-			#else
-				vec4 envMapColor = texture2D( envMap, reflectView.xy * 0.5 + 0.5, specularMIPLevel );
-			#endif
-			envMapColor.rgb = envMapTexelToLinear( envMapColor ).rgb;
-		#endif
-		return envMapColor.rgb * envMapIntensity;
-	}
-#endif
-#ifdef USE_FOG
-	uniform vec3 fogColor;
-	varying float fogDepth;
-	#ifdef FOG_EXP2
-		uniform float fogDensity;
-	#else
-		uniform float fogNear;
-		uniform float fogFar;
-	#endif
-#endif
 uniform bool receiveShadow;
 uniform vec3 ambientLightColor;
 uniform vec3 lightProbe[ 9 ];
@@ -669,108 +463,30 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 		return irradiance;
 	}
 #endif
-struct PhysicalMaterial {
+varying vec3 vViewPosition;
+#ifndef FLAT_SHADED
+	varying vec3 vNormal;
+#endif
+struct ToonMaterial {
 	vec3	diffuseColor;
-	float	specularRoughness;
 	vec3	specularColor;
-#ifdef CLEARCOAT
-	float clearcoat;
-	float clearcoatRoughness;
-#endif
-#ifdef USE_SHEEN
-	vec3 sheenColor;
-#endif
+	float	specularShininess;
+	float	specularStrength;
 };
-#define MAXIMUM_SPECULAR_COEFFICIENT 0.16
-#define DEFAULT_SPECULAR_COEFFICIENT 0.04
-float clearcoatDHRApprox( const in float roughness, const in float dotNL ) {
-	return DEFAULT_SPECULAR_COEFFICIENT + ( 1.0 - DEFAULT_SPECULAR_COEFFICIENT ) * ( pow( 1.0 - dotNL, 5.0 ) * pow( 1.0 - roughness, 2.0 ) );
-}
-#if NUM_RECT_AREA_LIGHTS > 0
-	void RE_Direct_RectArea_Physical( const in RectAreaLight rectAreaLight, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
-		vec3 normal = geometry.normal;
-		vec3 viewDir = geometry.viewDir;
-		vec3 position = geometry.position;
-		vec3 lightPos = rectAreaLight.position;
-		vec3 halfWidth = rectAreaLight.halfWidth;
-		vec3 halfHeight = rectAreaLight.halfHeight;
-		vec3 lightColor = rectAreaLight.color;
-		float roughness = material.specularRoughness;
-		vec3 rectCoords[ 4 ];
-		rectCoords[ 0 ] = lightPos + halfWidth - halfHeight;		rectCoords[ 1 ] = lightPos - halfWidth - halfHeight;
-		rectCoords[ 2 ] = lightPos - halfWidth + halfHeight;
-		rectCoords[ 3 ] = lightPos + halfWidth + halfHeight;
-		vec2 uv = LTC_Uv( normal, viewDir, roughness );
-		vec4 t1 = texture2D( ltc_1, uv );
-		vec4 t2 = texture2D( ltc_2, uv );
-		mat3 mInv = mat3(
-			vec3( t1.x, 0, t1.y ),
-			vec3(    0, 1,    0 ),
-			vec3( t1.z, 0, t1.w )
-		);
-		vec3 fresnel = ( material.specularColor * t2.x + ( vec3( 1.0 ) - material.specularColor ) * t2.y );
-		reflectedLight.directSpecular += lightColor * fresnel * LTC_Evaluate( normal, viewDir, position, mInv, rectCoords );
-		reflectedLight.directDiffuse += lightColor * material.diffuseColor * LTC_Evaluate( normal, viewDir, position, mat3( 1.0 ), rectCoords );
-	}
-#endif
-void RE_Direct_Physical( const in IncidentLight directLight, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
-	float dotNL = saturate( dot( geometry.normal, directLight.direction ) );
-	vec3 irradiance = dotNL * directLight.color;
+void RE_Direct_Toon( const in IncidentLight directLight, const in GeometricContext geometry, const in ToonMaterial material, inout ReflectedLight reflectedLight ) {
+	vec3 irradiance = getGradientIrradiance( geometry.normal, directLight.direction ) * directLight.color;
 	#ifndef PHYSICALLY_CORRECT_LIGHTS
 		irradiance *= PI;
 	#endif
-	#ifdef CLEARCOAT
-		float ccDotNL = saturate( dot( geometry.clearcoatNormal, directLight.direction ) );
-		vec3 ccIrradiance = ccDotNL * directLight.color;
-		#ifndef PHYSICALLY_CORRECT_LIGHTS
-			ccIrradiance *= PI;
-		#endif
-		float clearcoatDHR = material.clearcoat * clearcoatDHRApprox( material.clearcoatRoughness, ccDotNL );
-		reflectedLight.directSpecular += ccIrradiance * material.clearcoat * BRDF_Specular_GGX( directLight, geometry.viewDir, geometry.clearcoatNormal, vec3( DEFAULT_SPECULAR_COEFFICIENT ), material.clearcoatRoughness );
-	#else
-		float clearcoatDHR = 0.0;
-	#endif
-	#ifdef USE_SHEEN
-		reflectedLight.directSpecular += ( 1.0 - clearcoatDHR ) * irradiance * BRDF_Specular_Sheen(
-			material.specularRoughness,
-			directLight.direction,
-			geometry,
-			material.sheenColor
-		);
-	#else
-		reflectedLight.directSpecular += ( 1.0 - clearcoatDHR ) * irradiance * BRDF_Specular_GGX( directLight, geometry.viewDir, geometry.normal, material.specularColor, material.specularRoughness);
-	#endif
-	reflectedLight.directDiffuse += ( 1.0 - clearcoatDHR ) * irradiance * BRDF_Diffuse_Lambert( material.diffuseColor );
+	reflectedLight.directDiffuse += irradiance * BRDF_Diffuse_Lambert( material.diffuseColor );
+	reflectedLight.directSpecular += irradiance * BRDF_Specular_BlinnPhong( directLight, geometry, material.specularColor, material.specularShininess ) * material.specularStrength;
 }
-void RE_IndirectDiffuse_Physical( const in vec3 irradiance, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
+void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in GeometricContext geometry, const in ToonMaterial material, inout ReflectedLight reflectedLight ) {
 	reflectedLight.indirectDiffuse += irradiance * BRDF_Diffuse_Lambert( material.diffuseColor );
 }
-void RE_IndirectSpecular_Physical( const in vec3 radiance, const in vec3 irradiance, const in vec3 clearcoatRadiance, const in GeometricContext geometry, const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
-	#ifdef CLEARCOAT
-		float ccDotNV = saturate( dot( geometry.clearcoatNormal, geometry.viewDir ) );
-		reflectedLight.indirectSpecular += clearcoatRadiance * material.clearcoat * BRDF_Specular_GGX_Environment( geometry.viewDir, geometry.clearcoatNormal, vec3( DEFAULT_SPECULAR_COEFFICIENT ), material.clearcoatRoughness );
-		float ccDotNL = ccDotNV;
-		float clearcoatDHR = material.clearcoat * clearcoatDHRApprox( material.clearcoatRoughness, ccDotNL );
-	#else
-		float clearcoatDHR = 0.0;
-	#endif
-	float clearcoatInv = 1.0 - clearcoatDHR;
-	vec3 singleScattering = vec3( 0.0 );
-	vec3 multiScattering = vec3( 0.0 );
-	vec3 cosineWeightedIrradiance = irradiance * RECIPROCAL_PI;
-	BRDF_Specular_Multiscattering_Environment( geometry, material.specularColor, material.specularRoughness, singleScattering, multiScattering );
-	vec3 diffuse = material.diffuseColor * ( 1.0 - ( singleScattering + multiScattering ) );
-	reflectedLight.indirectSpecular += clearcoatInv * radiance * singleScattering;
-	reflectedLight.indirectSpecular += multiScattering * cosineWeightedIrradiance;
-	reflectedLight.indirectDiffuse += diffuse * cosineWeightedIrradiance;
-}
-#define RE_Direct				RE_Direct_Physical
-#define RE_Direct_RectArea		RE_Direct_RectArea_Physical
-#define RE_IndirectDiffuse		RE_IndirectDiffuse_Physical
-#define RE_IndirectSpecular		RE_IndirectSpecular_Physical
-float computeSpecularOcclusion( const in float dotNV, const in float ambientOcclusion, const in float roughness ) {
-	return saturate( pow( dotNV + ambientOcclusion, exp2( - 16.0 * roughness - 1.0 ) ) - 1.0 + ambientOcclusion );
-}
+#define RE_Direct				RE_Direct_Toon
+#define RE_IndirectDiffuse		RE_IndirectDiffuse_Toon
+#define Material_LightProbeLOD( material )	(0)
 #ifdef USE_SHADOWMAP
 	#if NUM_DIR_LIGHT_SHADOWS > 0
 		uniform sampler2D directionalShadowMap[ NUM_DIR_LIGHT_SHADOWS ];
@@ -967,15 +683,8 @@ float computeSpecularOcclusion( const in float dotNV, const in float ambientOccl
 		return normalize( tsn * mapN );
 	}
 #endif
-#ifdef USE_CLEARCOAT_NORMALMAP
-	uniform sampler2D clearcoatNormalMap;
-	uniform vec2 clearcoatNormalScale;
-#endif
-#ifdef USE_ROUGHNESSMAP
-	uniform sampler2D roughnessMap;
-#endif
-#ifdef USE_METALNESSMAP
-	uniform sampler2D metalnessMap;
+#ifdef USE_SPECULARMAP
+	uniform sampler2D specularMap;
 #endif
 #if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	uniform float logDepthBufFC;
@@ -1026,15 +735,12 @@ void main() {
 	#ifdef ALPHATEST
 	if ( diffuseColor.a < ALPHATEST ) discard;
 #endif
-	float roughnessFactor = roughness;
-#ifdef USE_ROUGHNESSMAP
-	vec4 texelRoughness = texture2D( roughnessMap, vUv );
-	roughnessFactor *= texelRoughness.g;
-#endif
-	float metalnessFactor = metalness;
-#ifdef USE_METALNESSMAP
-	vec4 texelMetalness = texture2D( metalnessMap, vUv );
-	metalnessFactor *= texelMetalness.b;
+	float specularStrength;
+#ifdef USE_SPECULARMAP
+	vec4 texelSpecular = texture2D( specularMap, vUv );
+	specularStrength = texelSpecular.r;
+#else
+	specularStrength = 1.0;
 #endif
 	#ifdef FLAT_SHADED
 	vec3 fdx = vec3( dFdx( vViewPosition.x ), dFdx( vViewPosition.y ), dFdx( vViewPosition.z ) );
@@ -1078,42 +784,16 @@ vec3 geometryNormal = normal;
 #elif defined( USE_BUMPMAP )
 	normal = perturbNormalArb( -vViewPosition, normal, dHdxy_fwd() );
 #endif
-	#ifdef CLEARCOAT
-	vec3 clearcoatNormal = geometryNormal;
-#endif
-	#ifdef USE_CLEARCOAT_NORMALMAP
-	vec3 clearcoatMapN = texture2D( clearcoatNormalMap, vUv ).xyz * 2.0 - 1.0;
-	clearcoatMapN.xy *= clearcoatNormalScale;
-	#ifdef USE_TANGENT
-		clearcoatNormal = normalize( vTBN * clearcoatMapN );
-	#else
-		clearcoatNormal = perturbNormal2Arb( - vViewPosition, clearcoatNormal, clearcoatMapN );
-	#endif
-#endif
 	#ifdef USE_EMISSIVEMAP
 	vec4 emissiveColor = texture2D( emissiveMap, vUv );
 	emissiveColor.rgb = emissiveMapTexelToLinear( emissiveColor ).rgb;
 	totalEmissiveRadiance *= emissiveColor.rgb;
 #endif
-	PhysicalMaterial material;
-material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor );
-vec3 dxy = max( abs( dFdx( geometryNormal ) ), abs( dFdy( geometryNormal ) ) );
-float geometryRoughness = max( max( dxy.x, dxy.y ), dxy.z );
-material.specularRoughness = max( roughnessFactor, 0.0525 );material.specularRoughness += geometryRoughness;
-material.specularRoughness = min( material.specularRoughness, 1.0 );
-#ifdef REFLECTIVITY
-	material.specularColor = mix( vec3( MAXIMUM_SPECULAR_COEFFICIENT * pow2( reflectivity ) ), diffuseColor.rgb, metalnessFactor );
-#else
-	material.specularColor = mix( vec3( DEFAULT_SPECULAR_COEFFICIENT ), diffuseColor.rgb, metalnessFactor );
-#endif
-#ifdef CLEARCOAT
-	material.clearcoat = saturate( clearcoat );	material.clearcoatRoughness = max( clearcoatRoughness, 0.0525 );
-	material.clearcoatRoughness += geometryRoughness;
-	material.clearcoatRoughness = min( material.clearcoatRoughness, 1.0 );
-#endif
-#ifdef USE_SHEEN
-	material.sheenColor = sheen;
-#endif
+	ToonMaterial material;
+material.diffuseColor = diffuseColor.rgb;
+material.specularColor = specular;
+material.specularShininess = shininess;
+material.specularStrength = specularStrength;
 	
 GeometricContext geometry;
 geometry.position = - vViewPosition;
@@ -1216,9 +896,6 @@ IncidentLight directLight;
 	#endif
 #endif
 	vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;
-	#ifdef TRANSPARENCY
-		diffuseColor.a *= saturate( 1. - transparency + linearToRelativeLuminance( reflectedLight.directSpecular + reflectedLight.indirectSpecular ) );
-	#endif
 	gl_FragColor = vec4( outgoingLight, diffuseColor.a );
 	#if defined( TONE_MAPPING )
 	gl_FragColor.rgb = toneMapping( gl_FragColor.rgb );

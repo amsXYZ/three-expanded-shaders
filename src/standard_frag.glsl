@@ -129,7 +129,7 @@ vec4 pack2HalfToRGBA( vec2 v ) {
 	vec4 r = vec4( v.x, fract( v.x * 255.0 ), v.y, fract( v.y * 255.0 ));
 	return vec4( r.x - r.y / 255.0, r.y, r.z - r.w / 255.0, r.w);
 }
-vec2 unpack2HalfToRGBA( vec4 v ) {
+vec2 unpackRGBATo2Half( vec4 v ) {
 	return vec2( v.x + ( v.y / 255.0 ), v.z + ( v.w / 255.0 ) );
 }
 float viewZToOrthographicDepth( const in float viewZ, const in float near, const in float far ) {
@@ -343,107 +343,114 @@ vec3 BRDF_Specular_Sheen( const in float roughness, const in vec3 L, const in Ge
 }
 #endif
 #ifdef ENVMAP_TYPE_CUBE_UV
-#define cubeUV_textureSize (1024.0)
-int getFaceFromDirection(vec3 direction) {
-	vec3 absDirection = abs(direction);
-	int face = -1;
-	if( absDirection.x > absDirection.z ) {
-		if(absDirection.x > absDirection.y )
-			face = direction.x > 0.0 ? 0 : 3;
-		else
-			face = direction.y > 0.0 ? 1 : 4;
-	}
-	else {
-		if(absDirection.z > absDirection.y )
-			face = direction.z > 0.0 ? 2 : 5;
-		else
-			face = direction.y > 0.0 ? 1 : 4;
-	}
-	return face;
+#define cubeUV_maxMipLevel 8.0
+#define cubeUV_minMipLevel 4.0
+#define cubeUV_maxTileSize 256.0
+#define cubeUV_minTileSize 16.0
+float getFace(vec3 direction) {
+    vec3 absDirection = abs(direction);
+    float face = -1.0;
+    if (absDirection.x > absDirection.z) {
+      if (absDirection.x > absDirection.y)
+        face = direction.x > 0.0 ? 0.0 : 3.0;
+      else
+        face = direction.y > 0.0 ? 1.0 : 4.0;
+    } else {
+      if (absDirection.z > absDirection.y)
+        face = direction.z > 0.0 ? 2.0 : 5.0;
+      else
+        face = direction.y > 0.0 ? 1.0 : 4.0;
+    }
+    return face;
 }
-#define cubeUV_maxLods1  (log2(cubeUV_textureSize*0.25) - 1.0)
-#define cubeUV_rangeClamp (exp2((6.0 - 1.0) * 2.0))
-vec2 MipLevelInfo( vec3 vec, float roughnessLevel, float roughness ) {
-	float scale = exp2(cubeUV_maxLods1 - roughnessLevel);
-	float dxRoughness = dFdx(roughness);
-	float dyRoughness = dFdy(roughness);
-	vec3 dx = dFdx( vec * scale * dxRoughness );
-	vec3 dy = dFdy( vec * scale * dyRoughness );
-	float d = max( dot( dx, dx ), dot( dy, dy ) );
-	d = clamp(d, 1.0, cubeUV_rangeClamp);
-	float mipLevel = 0.5 * log2(d);
-	return vec2(floor(mipLevel), fract(mipLevel));
+vec2 getUV(vec3 direction, float face) {
+    vec2 uv;
+    if (face == 0.0) {
+      uv = vec2(-direction.z, direction.y) / abs(direction.x);
+    } else if (face == 1.0) {
+      uv = vec2(direction.x, -direction.z) / abs(direction.y);
+    } else if (face == 2.0) {
+      uv = direction.xy / abs(direction.z);
+    } else if (face == 3.0) {
+      uv = vec2(direction.z, direction.y) / abs(direction.x);
+    } else if (face == 4.0) {
+      uv = direction.xz / abs(direction.y);
+    } else {
+      uv = vec2(-direction.x, direction.y) / abs(direction.z);
+    }
+    return 0.5 * (uv + 1.0);
 }
-#define cubeUV_maxLods2 (log2(cubeUV_textureSize*0.25) - 2.0)
-#define cubeUV_rcpTextureSize (1.0 / cubeUV_textureSize)
-vec2 getCubeUV(vec3 direction, float roughnessLevel, float mipLevel) {
-	mipLevel = roughnessLevel > cubeUV_maxLods2 - 3.0 ? 0.0 : mipLevel;
-	float a = 16.0 * cubeUV_rcpTextureSize;
-	vec2 exp2_packed = exp2( vec2( roughnessLevel, mipLevel ) );
-	vec2 rcp_exp2_packed = vec2( 1.0 ) / exp2_packed;
-	float powScale = exp2_packed.x * exp2_packed.y;
-	float scale = rcp_exp2_packed.x * rcp_exp2_packed.y * 0.25;
-	float mipOffset = 0.75*(1.0 - rcp_exp2_packed.y) * rcp_exp2_packed.x;
-	bool bRes = mipLevel == 0.0;
-	scale =  bRes && (scale < a) ? a : scale;
-	vec3 r;
-	vec2 offset;
-	int face = getFaceFromDirection(direction);
-	float rcpPowScale = 1.0 / powScale;
-	if( face == 0) {
-		r = vec3(direction.x, -direction.z, direction.y);
-		offset = vec2(0.0+mipOffset,0.75 * rcpPowScale);
-		offset.y = bRes && (offset.y < 2.0*a) ? a : offset.y;
-	}
-	else if( face == 1) {
-		r = vec3(direction.y, direction.x, direction.z);
-		offset = vec2(scale+mipOffset, 0.75 * rcpPowScale);
-		offset.y = bRes && (offset.y < 2.0*a) ? a : offset.y;
-	}
-	else if( face == 2) {
-		r = vec3(direction.z, direction.x, direction.y);
-		offset = vec2(2.0*scale+mipOffset, 0.75 * rcpPowScale);
-		offset.y = bRes && (offset.y < 2.0*a) ? a : offset.y;
-	}
-	else if( face == 3) {
-		r = vec3(direction.x, direction.z, direction.y);
-		offset = vec2(0.0+mipOffset,0.5 * rcpPowScale);
-		offset.y = bRes && (offset.y < 2.0*a) ? 0.0 : offset.y;
-	}
-	else if( face == 4) {
-		r = vec3(direction.y, direction.x, -direction.z);
-		offset = vec2(scale+mipOffset, 0.5 * rcpPowScale);
-		offset.y = bRes && (offset.y < 2.0*a) ? 0.0 : offset.y;
-	}
-	else {
-		r = vec3(direction.z, -direction.x, direction.y);
-		offset = vec2(2.0*scale+mipOffset, 0.5 * rcpPowScale);
-		offset.y = bRes && (offset.y < 2.0*a) ? 0.0 : offset.y;
-	}
-	r = normalize(r);
-	float texelOffset = 0.5 * cubeUV_rcpTextureSize;
-	vec2 s = ( r.yz / abs( r.x ) + vec2( 1.0 ) ) * 0.5;
-	vec2 base = offset + vec2( texelOffset );
-	return base + s * ( scale - 2.0 * texelOffset );
+vec3 bilinearCubeUV(sampler2D envMap, vec3 direction, float mipInt) {
+  float face = getFace(direction);
+  float filterInt = max(cubeUV_minMipLevel - mipInt, 0.0);
+  mipInt = max(mipInt, cubeUV_minMipLevel);
+  float faceSize = exp2(mipInt);
+  float texelSize = 1.0 / (3.0 * cubeUV_maxTileSize);
+  vec2 uv = getUV(direction, face) * (faceSize - 1.0);
+  vec2 f = fract(uv);
+  uv += 0.5 - f;
+  if (face > 2.0) {
+    uv.y += faceSize;
+    face -= 3.0;
+  }
+  uv.x += face * faceSize;
+  if(mipInt < cubeUV_maxMipLevel){
+    uv.y += 2.0 * cubeUV_maxTileSize;
+  }
+  uv.y += filterInt * 2.0 * cubeUV_minTileSize;
+  uv.x += 3.0 * max(0.0, cubeUV_maxTileSize - 2.0 * faceSize);
+  uv *= texelSize;
+  vec3 tl = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
+  uv.x += texelSize;
+  vec3 tr = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
+  uv.y += texelSize;
+  vec3 br = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
+  uv.x -= texelSize;
+  vec3 bl = envMapTexelToLinear(texture2D(envMap, uv)).rgb;
+  vec3 tm = mix(tl, tr, f.x);
+  vec3 bm = mix(bl, br, f.x);
+  return mix(tm, bm, f.y);
 }
-#define cubeUV_maxLods3 (log2(cubeUV_textureSize*0.25) - 3.0)
-vec4 textureCubeUV( sampler2D envMap, vec3 reflectedDirection, float roughness ) {
-	float roughnessVal = roughness* cubeUV_maxLods3;
-	float r1 = floor(roughnessVal);
-	float r2 = r1 + 1.0;
-	float t = fract(roughnessVal);
-	vec2 mipInfo = MipLevelInfo(reflectedDirection, r1, roughness);
-	float s = mipInfo.y;
-	float level0 = mipInfo.x;
-	float level1 = level0 + 1.0;
-	level1 = level1 > 5.0 ? 5.0 : level1;
-	level0 += min( floor( s + 0.5 ), 5.0 );
-	vec2 uv_10 = getCubeUV(reflectedDirection, r1, level0);
-	vec4 color10 = envMapTexelToLinear(texture2D(envMap, uv_10));
-	vec2 uv_20 = getCubeUV(reflectedDirection, r2, level0);
-	vec4 color20 = envMapTexelToLinear(texture2D(envMap, uv_20));
-	vec4 result = mix(color10, color20, t);
-	return vec4(result.rgb, 1.0);
+#define r0 1.0
+#define v0 0.339
+#define m0 -2.0
+#define r1 0.8
+#define v1 0.276
+#define m1 -1.0
+#define r4 0.4
+#define v4 0.046
+#define m4 2.0
+#define r5 0.305
+#define v5 0.016
+#define m5 3.0
+#define r6 0.21
+#define v6 0.0038
+#define m6 4.0
+float roughnessToMip(float roughness) {
+  float mip = 0.0;
+  if (roughness >= r1) {
+    mip = (r0 - roughness) * (m1 - m0) / (r0 - r1) + m0;
+  } else if (roughness >= r4) {
+    mip = (r1 - roughness) * (m4 - m1) / (r1 - r4) + m1;
+  } else if (roughness >= r5) {
+    mip = (r4 - roughness) * (m5 - m4) / (r4 - r5) + m4;
+  } else if (roughness >= r6) {
+    mip = (r5 - roughness) * (m6 - m5) / (r5 - r6) + m5;
+  } else {
+    mip = -2.0 * log2(1.16 * roughness);  }
+  return mip;
+}
+vec4 textureCubeUV(sampler2D envMap, vec3 sampleDir, float roughness) {
+  float mip = clamp(roughnessToMip(roughness), m0, cubeUV_maxMipLevel);
+  float mipF = fract(mip);
+  float mipInt = floor(mip);
+  vec3 color0 = bilinearCubeUV(envMap, sampleDir, mipInt);
+  if (mipF == 0.0) {
+    return vec4(color0, 1.0);
+  } else {
+    vec3 color1 = bilinearCubeUV(envMap, sampleDir, mipInt + 1.0);
+    return vec4(mix(color0, color1, mipF), 1.0);
+  }
 }
 #endif
 #ifdef USE_ENVMAP
@@ -781,7 +788,7 @@ float computeSpecularOcclusion( const in float dotNV, const in float ambientOccl
 		return step( compare, unpackRGBAToDepth( texture2D( depths, uv ) ) );
 	}
 	vec2 texture2DDistribution( sampler2D shadow, vec2 uv ) {
-		return unpack2HalfToRGBA( texture2D( shadow, uv ) );
+		return unpackRGBATo2Half( texture2D( shadow, uv ) );
 	}
 	float VSMShadow (sampler2D shadow, vec2 uv, float compare ){
 		float occlusion = 1.0;
@@ -1090,14 +1097,19 @@ vec3 geometryNormal = normal;
 #endif
 	PhysicalMaterial material;
 material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor );
-material.specularRoughness = clamp( roughnessFactor, 0.04, 1.0 );
+vec3 dxy = max( abs( dFdx( geometryNormal ) ), abs( dFdy( geometryNormal ) ) );
+float geometryRoughness = max( max( dxy.x, dxy.y ), dxy.z );
+material.specularRoughness = max( roughnessFactor, 0.0525 );material.specularRoughness += geometryRoughness;
+material.specularRoughness = min( material.specularRoughness, 1.0 );
 #ifdef REFLECTIVITY
 	material.specularColor = mix( vec3( MAXIMUM_SPECULAR_COEFFICIENT * pow2( reflectivity ) ), diffuseColor.rgb, metalnessFactor );
 #else
 	material.specularColor = mix( vec3( DEFAULT_SPECULAR_COEFFICIENT ), diffuseColor.rgb, metalnessFactor );
 #endif
 #ifdef CLEARCOAT
-	material.clearcoat = saturate( clearcoat );	material.clearcoatRoughness = clamp( clearcoatRoughness, 0.04, 1.0 );
+	material.clearcoat = saturate( clearcoat );	material.clearcoatRoughness = max( clearcoatRoughness, 0.0525 );
+	material.clearcoatRoughness += geometryRoughness;
+	material.clearcoatRoughness = min( material.clearcoatRoughness, 1.0 );
 #endif
 #ifdef USE_SHEEN
 	material.sheenColor = sheen;
@@ -1172,7 +1184,8 @@ IncidentLight directLight;
 #endif
 	#if defined( RE_IndirectDiffuse )
 	#ifdef USE_LIGHTMAP
-		vec3 lightMapIrradiance = texture2D( lightMap, vUv2 ).xyz * lightMapIntensity;
+		vec4 lightMapTexel= texture2D( lightMap, vUv2 );
+		vec3 lightMapIrradiance = lightMapTexelToLinear( lightMapTexel ).rgb * lightMapIntensity;
 		#ifndef PHYSICALLY_CORRECT_LIGHTS
 			lightMapIrradiance *= PI;
 		#endif
