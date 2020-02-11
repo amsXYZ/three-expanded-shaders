@@ -85,6 +85,7 @@ bool isPerspectiveMatrix( mat4 m ) {
 	varying float fogDepth;
 #endif
 #ifdef USE_MORPHTARGETS
+	uniform float morphTargetBaseInfluence;
 	#ifndef USE_MORPHNORMALS
 	uniform float morphTargetInfluences[ 8 ];
 	#else
@@ -108,15 +109,16 @@ void main() {
 #endif
 	vec3 transformed = vec3( position );
 	#ifdef USE_MORPHTARGETS
-	transformed += ( morphTarget0 - position ) * morphTargetInfluences[ 0 ];
-	transformed += ( morphTarget1 - position ) * morphTargetInfluences[ 1 ];
-	transformed += ( morphTarget2 - position ) * morphTargetInfluences[ 2 ];
-	transformed += ( morphTarget3 - position ) * morphTargetInfluences[ 3 ];
+	transformed *= morphTargetBaseInfluence;
+	transformed += morphTarget0 * morphTargetInfluences[ 0 ];
+	transformed += morphTarget1 * morphTargetInfluences[ 1 ];
+	transformed += morphTarget2 * morphTargetInfluences[ 2 ];
+	transformed += morphTarget3 * morphTargetInfluences[ 3 ];
 	#ifndef USE_MORPHNORMALS
-	transformed += ( morphTarget4 - position ) * morphTargetInfluences[ 4 ];
-	transformed += ( morphTarget5 - position ) * morphTargetInfluences[ 5 ];
-	transformed += ( morphTarget6 - position ) * morphTargetInfluences[ 6 ];
-	transformed += ( morphTarget7 - position ) * morphTargetInfluences[ 7 ];
+	transformed += morphTarget4 * morphTargetInfluences[ 4 ];
+	transformed += morphTarget5 * morphTargetInfluences[ 5 ];
+	transformed += morphTarget6 * morphTargetInfluences[ 6 ];
+	transformed += morphTarget7 * morphTargetInfluences[ 7 ];
 	#endif
 #endif
 	vec4 mvPosition = vec4( transformed, 1.0 );
