@@ -92,6 +92,7 @@ bool isPerspectiveMatrix( mat4 m ) {
 #if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
 	attribute vec2 uv2;
 	varying vec2 vUv2;
+	uniform mat3 uv2Transform;
 #endif
 #ifdef USE_DISPLACEMENTMAP
 	uniform sampler2D displacementMap;
@@ -182,7 +183,7 @@ void main() {
 	vUv = ( uvTransform * vec3( uv, 1 ) ).xy;
 #endif
 	#if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
-	vUv2 = uv2;
+	vUv2 = ( uv2Transform * vec3( uv2, 1 ) ).xy;
 #endif
 	#ifdef USE_COLOR
 	vColor.xyz = color.xyz;
@@ -225,7 +226,7 @@ transformedNormal = normalMatrix * transformedNormal;
 	transformedNormal = - transformedNormal;
 #endif
 #ifdef USE_TANGENT
-	vec3 transformedTangent = normalMatrix * objectTangent;
+	vec3 transformedTangent = ( modelViewMatrix * vec4( objectTangent, 0.0 ) ).xyz;
 	#ifdef FLIP_SIDED
 		transformedTangent = - transformedTangent;
 	#endif

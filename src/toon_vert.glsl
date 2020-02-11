@@ -1,3 +1,8 @@
+#define TOON
+varying vec3 vViewPosition;
+#ifndef FLAT_SHADED
+	varying vec3 vNormal;
+#endif
 #define PI 3.14159265359
 #define PI2 6.28318530718
 #define PI_HALF 1.5707963267949
@@ -89,17 +94,10 @@ bool isPerspectiveMatrix( mat4 m ) {
 	varying vec2 vUv2;
 	uniform mat3 uv2Transform;
 #endif
-#ifdef USE_ENVMAP
-	#if defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) ||defined( PHONG )
-		#define ENV_WORLDPOS
-	#endif
-	#ifdef ENV_WORLDPOS
-		
-		varying vec3 vWorldPosition;
-	#else
-		varying vec3 vReflect;
-		uniform float refractionRatio;
-	#endif
+#ifdef USE_DISPLACEMENTMAP
+	uniform sampler2D displacementMap;
+	uniform float displacementScale;
+	uniform float displacementBias;
 #endif
 #ifdef USE_COLOR
 	varying vec3 vColor;
@@ -143,6 +141,20 @@ bool isPerspectiveMatrix( mat4 m ) {
 		}
 	#endif
 #endif
+#ifdef USE_SHADOWMAP
+	#if NUM_DIR_LIGHT_SHADOWS > 0
+		uniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHT_SHADOWS ];
+		varying vec4 vDirectionalShadowCoord[ NUM_DIR_LIGHT_SHADOWS ];
+	#endif
+	#if NUM_SPOT_LIGHT_SHADOWS > 0
+		uniform mat4 spotShadowMatrix[ NUM_SPOT_LIGHT_SHADOWS ];
+		varying vec4 vSpotShadowCoord[ NUM_SPOT_LIGHT_SHADOWS ];
+	#endif
+	#if NUM_POINT_LIGHT_SHADOWS > 0
+		uniform mat4 pointShadowMatrix[ NUM_POINT_LIGHT_SHADOWS ];
+		varying vec4 vPointShadowCoord[ NUM_POINT_LIGHT_SHADOWS ];
+	#endif
+#endif
 #ifdef USE_LOGDEPTHBUF
 	#ifdef USE_LOGDEPTHBUF_EXT
 		varying float vFragDepth;
@@ -164,13 +176,6 @@ void main() {
 	#ifdef USE_COLOR
 	vColor.xyz = color.xyz;
 #endif
-	#ifdef USE_SKINNING
-	mat4 boneMatX = getBoneMatrix( skinIndex.x );
-	mat4 boneMatY = getBoneMatrix( skinIndex.y );
-	mat4 boneMatZ = getBoneMatrix( skinIndex.z );
-	mat4 boneMatW = getBoneMatrix( skinIndex.w );
-#endif
-	#ifdef USE_ENVMAP
 	vec3 objectNormal = vec3( normal );
 #ifdef USE_TANGENT
 	vec3 objectTangent = vec3( tangent.xyz );
@@ -181,6 +186,12 @@ void main() {
 	objectNormal += morphNormal1 * morphTargetInfluences[ 1 ];
 	objectNormal += morphNormal2 * morphTargetInfluences[ 2 ];
 	objectNormal += morphNormal3 * morphTargetInfluences[ 3 ];
+#endif
+	#ifdef USE_SKINNING
+	mat4 boneMatX = getBoneMatrix( skinIndex.x );
+	mat4 boneMatY = getBoneMatrix( skinIndex.y );
+	mat4 boneMatZ = getBoneMatrix( skinIndex.z );
+	mat4 boneMatW = getBoneMatrix( skinIndex.w );
 #endif
 	#ifdef USE_SKINNING
 	mat4 skinMatrix = mat4( 0.0 );
@@ -208,7 +219,9 @@ transformedNormal = normalMatrix * transformedNormal;
 		transformedTangent = - transformedTangent;
 	#endif
 #endif
-	#endif
+#ifndef FLAT_SHADED
+	vNormal = normalize( transformedNormal );
+#endif
 	vec3 transformed = vec3( position );
 	#ifdef USE_MORPHTARGETS
 	transformed *= morphTargetBaseInfluence;
@@ -232,6 +245,9 @@ transformedNormal = normalMatrix * transformedNormal;
 	skinned += boneMatW * skinVertex * skinWeight.w;
 	transformed = ( bindMatrixInverse * skinned ).xyz;
 #endif
+	#ifdef USE_DISPLACEMENTMAP
+	transformed += normalize( objectNormal ) * ( texture2D( displacementMap, vUv ).x * displacementScale + displacementBias );
+#endif
 	vec4 mvPosition = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
 	mvPosition = instanceMatrix * mvPosition;
@@ -249,6 +265,10 @@ gl_Position = projectionMatrix * mvPosition;
 		}
 	#endif
 #endif
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+	vViewPosition = - mvPosition.xyz;
+#endif
+	vViewPosition = - mvPosition.xyz;
 	#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )
 	vec4 worldPosition = vec4( transformed, 1.0 );
 	#ifdef USE_INSTANCING
@@ -256,25 +276,24 @@ gl_Position = projectionMatrix * mvPosition;
 	#endif
 	worldPosition = modelMatrix * worldPosition;
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
-	vViewPosition = - mvPosition.xyz;
-#endif
-	#ifdef USE_ENVMAP
-	#ifdef ENV_WORLDPOS
-		vWorldPosition = worldPosition.xyz;
-	#else
-		vec3 cameraToVertex;
-		if ( isOrthographic ) { 
-			cameraToVertex = normalize( vec3( - viewMatrix[ 0 ][ 2 ], - viewMatrix[ 1 ][ 2 ], - viewMatrix[ 2 ][ 2 ] ) );
-		} else {
-			cameraToVertex = normalize( worldPosition.xyz - cameraPosition );
-		}
-		vec3 worldNormal = inverseTransformDirection( transformedNormal, viewMatrix );
-		#ifdef ENVMAP_MODE_REFLECTION
-			vReflect = reflect( cameraToVertex, worldNormal );
-		#else
-			vReflect = refract( cameraToVertex, worldNormal, refractionRatio );
-		#endif
+	#ifdef USE_SHADOWMAP
+	#if NUM_DIR_LIGHT_SHADOWS > 0
+	#pragma unroll_loop
+	for ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
+		vDirectionalShadowCoord[ i ] = directionalShadowMatrix[ i ] * worldPosition;
+	}
+	#endif
+	#if NUM_SPOT_LIGHT_SHADOWS > 0
+	#pragma unroll_loop
+	for ( int i = 0; i < NUM_SPOT_LIGHT_SHADOWS; i ++ ) {
+		vSpotShadowCoord[ i ] = spotShadowMatrix[ i ] * worldPosition;
+	}
+	#endif
+	#if NUM_POINT_LIGHT_SHADOWS > 0
+	#pragma unroll_loop
+	for ( int i = 0; i < NUM_POINT_LIGHT_SHADOWS; i ++ ) {
+		vPointShadowCoord[ i ] = pointShadowMatrix[ i ] * worldPosition;
+	}
 	#endif
 #endif
 	#ifdef USE_FOG

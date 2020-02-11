@@ -99,7 +99,7 @@ vec4 pack2HalfToRGBA( vec2 v ) {
 	vec4 r = vec4( v.x, fract( v.x * 255.0 ), v.y, fract( v.y * 255.0 ));
 	return vec4( r.x - r.y / 255.0, r.y, r.z - r.w / 255.0, r.w);
 }
-vec2 unpack2HalfToRGBA( vec4 v ) {
+vec2 unpackRGBATo2Half( vec4 v ) {
 	return vec2( v.x + ( v.y / 255.0 ), v.z + ( v.w / 255.0 ) );
 }
 float viewZToOrthographicDepth( const in float viewZ, const in float near, const in float far ) {
@@ -430,7 +430,7 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 		return step( compare, unpackRGBAToDepth( texture2D( depths, uv ) ) );
 	}
 	vec2 texture2DDistribution( sampler2D shadow, vec2 uv ) {
-		return unpack2HalfToRGBA( texture2D( shadow, uv ) );
+		return unpackRGBATo2Half( texture2D( shadow, uv ) );
 	}
 	float VSMShadow (sampler2D shadow, vec2 uv, float compare ){
 		float occlusion = 1.0;

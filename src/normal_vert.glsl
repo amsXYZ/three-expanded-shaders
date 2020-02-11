@@ -189,7 +189,7 @@ transformedNormal = normalMatrix * transformedNormal;
 	transformedNormal = - transformedNormal;
 #endif
 #ifdef USE_TANGENT
-	vec3 transformedTangent = normalMatrix * objectTangent;
+	vec3 transformedTangent = ( modelViewMatrix * vec4( objectTangent, 0.0 ) ).xyz;
 	#ifdef FLIP_SIDED
 		transformedTangent = - transformedTangent;
 	#endif
