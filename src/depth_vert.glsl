@@ -133,9 +133,10 @@ bool isPerspectiveMatrix( mat4 m ) {
 		uniform float logDepthBufFC;
 	#endif
 #endif
-#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 	varying vec3 vViewPosition;
 #endif
+varying vec2 vHighPrecisionZW;
 void main() {
 	#ifdef USE_UV
 	vUv = ( uvTransform * vec3( uv, 1 ) ).xy;
@@ -214,7 +215,8 @@ gl_Position = projectionMatrix * mvPosition;
 		}
 	#endif
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 	vViewPosition = - mvPosition.xyz;
 #endif
+	vHighPrecisionZW = gl_Position.zw;
 }

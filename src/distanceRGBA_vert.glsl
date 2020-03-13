@@ -127,7 +127,7 @@ bool isPerspectiveMatrix( mat4 m ) {
 		}
 	#endif
 #endif
-#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 	varying vec3 vViewPosition;
 #endif
 void main() {
@@ -204,7 +204,7 @@ gl_Position = projectionMatrix * mvPosition;
 	#endif
 	worldPosition = modelMatrix * worldPosition;
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 	vViewPosition = - mvPosition.xyz;
 #endif
 	vWorldPosition = worldPosition.xyz;

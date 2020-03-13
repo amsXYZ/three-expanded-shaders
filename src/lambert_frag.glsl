@@ -485,12 +485,16 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 	struct DirectionalLight {
 		vec3 direction;
 		vec3 color;
-		int shadow;
-		float shadowBias;
-		float shadowRadius;
-		vec2 shadowMapSize;
 	};
 	uniform DirectionalLight directionalLights[ NUM_DIR_LIGHTS ];
+	#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+		struct DirectionalLightShadow {
+			float shadowBias;
+			float shadowRadius;
+			vec2 shadowMapSize;
+		};
+		uniform DirectionalLightShadow directionalLightShadows[ NUM_DIR_LIGHT_SHADOWS ];
+	#endif
 	void getDirectionalDirectLightIrradiance( const in DirectionalLight directionalLight, const in GeometricContext geometry, out IncidentLight directLight ) {
 		directLight.color = directionalLight.color;
 		directLight.direction = directionalLight.direction;
@@ -503,14 +507,18 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 		vec3 color;
 		float distance;
 		float decay;
-		int shadow;
-		float shadowBias;
-		float shadowRadius;
-		vec2 shadowMapSize;
-		float shadowCameraNear;
-		float shadowCameraFar;
 	};
 	uniform PointLight pointLights[ NUM_POINT_LIGHTS ];
+	#if defined( USE_SHADOWMAP ) && NUM_POINT_LIGHT_SHADOWS > 0
+		struct PointLightShadow {
+			float shadowBias;
+			float shadowRadius;
+			vec2 shadowMapSize;
+			float shadowCameraNear;
+			float shadowCameraFar;
+		};
+		uniform PointLightShadow pointLightShadows[ NUM_POINT_LIGHT_SHADOWS ];
+	#endif
 	void getPointDirectLightIrradiance( const in PointLight pointLight, const in GeometricContext geometry, out IncidentLight directLight ) {
 		vec3 lVector = pointLight.position - geometry.position;
 		directLight.direction = normalize( lVector );
@@ -529,12 +537,16 @@ vec3 getAmbientLightIrradiance( const in vec3 ambientLightColor ) {
 		float decay;
 		float coneCos;
 		float penumbraCos;
-		int shadow;
-		float shadowBias;
-		float shadowRadius;
-		vec2 shadowMapSize;
 	};
 	uniform SpotLight spotLights[ NUM_SPOT_LIGHTS ];
+	#if defined( USE_SHADOWMAP ) && NUM_SPOT_LIGHT_SHADOWS > 0
+		struct SpotLightShadow {
+			float shadowBias;
+			float shadowRadius;
+			vec2 shadowMapSize;
+		};
+		uniform SpotLightShadow spotLightShadows[ NUM_SPOT_LIGHT_SHADOWS ];
+	#endif
 	void getSpotDirectLightIrradiance( const in SpotLight spotLight, const in GeometricContext geometry, out IncidentLight directLight  ) {
 		vec3 lVector = spotLight.position - geometry.position;
 		directLight.direction = normalize( lVector );
@@ -744,27 +756,27 @@ float getShadowMask() {
 	float shadow = 1.0;
 	#ifdef USE_SHADOWMAP
 	#if NUM_DIR_LIGHT_SHADOWS > 0
-	DirectionalLight directionalLight;
+	DirectionalLightShadow directionalLight;
 	#pragma unroll_loop
 	for ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
-		directionalLight = directionalLights[ i ];
-		shadow *= all( bvec2( directionalLight.shadow, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+		directionalLight = directionalLightShadows[ i ];
+		shadow *= receiveShadow ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
 	}
 	#endif
 	#if NUM_SPOT_LIGHT_SHADOWS > 0
-	SpotLight spotLight;
+	SpotLightShadow spotLight;
 	#pragma unroll_loop
 	for ( int i = 0; i < NUM_SPOT_LIGHT_SHADOWS; i ++ ) {
-		spotLight = spotLights[ i ];
-		shadow *= all( bvec2( spotLight.shadow, receiveShadow ) ) ? getShadow( spotShadowMap[ i ], spotLight.shadowMapSize, spotLight.shadowBias, spotLight.shadowRadius, vSpotShadowCoord[ i ] ) : 1.0;
+		spotLight = spotLightShadows[ i ];
+		shadow *= receiveShadow ? getShadow( spotShadowMap[ i ], spotLight.shadowMapSize, spotLight.shadowBias, spotLight.shadowRadius, vSpotShadowCoord[ i ] ) : 1.0;
 	}
 	#endif
 	#if NUM_POINT_LIGHT_SHADOWS > 0
-	PointLight pointLight;
+	PointLightShadow pointLight;
 	#pragma unroll_loop
 	for ( int i = 0; i < NUM_POINT_LIGHT_SHADOWS; i ++ ) {
-		pointLight = pointLights[ i ];
-		shadow *= all( bvec2( pointLight.shadow, receiveShadow ) ) ? getPointShadow( pointShadowMap[ i ], pointLight.shadowMapSize, pointLight.shadowBias, pointLight.shadowRadius, vPointShadowCoord[ i ], pointLight.shadowCameraNear, pointLight.shadowCameraFar ) : 1.0;
+		pointLight = pointLightShadows[ i ];
+		shadow *= receiveShadow ? getPointShadow( pointShadowMap[ i ], pointLight.shadowMapSize, pointLight.shadowBias, pointLight.shadowRadius, vPointShadowCoord[ i ], pointLight.shadowCameraNear, pointLight.shadowCameraFar ) : 1.0;
 	}
 	#endif
 	#endif
@@ -779,7 +791,7 @@ float getShadowMask() {
 	varying float vIsPerspective;
 #endif
 #if NUM_CLIPPING_PLANES > 0
-	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 		varying vec3 vViewPosition;
 	#endif
 	uniform vec4 clippingPlanes[ NUM_CLIPPING_PLANES ];

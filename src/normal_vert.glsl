@@ -144,7 +144,7 @@ bool isPerspectiveMatrix( mat4 m ) {
 		uniform float logDepthBufFC;
 	#endif
 #endif
-#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 	varying vec3 vViewPosition;
 #endif
 void main() {
@@ -182,7 +182,9 @@ void main() {
 #endif
 	vec3 transformedNormal = objectNormal;
 #ifdef USE_INSTANCING
-	transformedNormal = mat3( instanceMatrix ) * transformedNormal;
+	mat3 m = mat3( instanceMatrix );
+	transformedNormal /= vec3( dot( m[ 0 ], m[ 0 ] ), dot( m[ 1 ], m[ 1 ] ), dot( m[ 2 ], m[ 2 ] ) );
+	transformedNormal = m * transformedNormal;
 #endif
 transformedNormal = normalMatrix * transformedNormal;
 #ifdef FLIP_SIDED
@@ -244,7 +246,7 @@ gl_Position = projectionMatrix * mvPosition;
 		}
 	#endif
 #endif
-	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 	vViewPosition = - mvPosition.xyz;
 #endif
 #if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )

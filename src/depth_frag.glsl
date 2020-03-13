@@ -130,11 +130,12 @@ float perspectiveDepthToViewZ( const in float invClipZ, const in float near, con
 	varying float vIsPerspective;
 #endif
 #if NUM_CLIPPING_PLANES > 0
-	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )
+	#if ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP ) && ! defined( TOON )
 		varying vec3 vViewPosition;
 	#endif
 	uniform vec4 clippingPlanes[ NUM_CLIPPING_PLANES ];
 #endif
+varying vec2 vHighPrecisionZW;
 void main() {
 	#if NUM_CLIPPING_PLANES > 0
 	vec4 plane;
@@ -171,9 +172,10 @@ void main() {
 	#if defined( USE_LOGDEPTHBUF ) && defined( USE_LOGDEPTHBUF_EXT )
 	gl_FragDepthEXT = vIsPerspective == 0.0 ? gl_FragCoord.z : log2( vFragDepth ) * logDepthBufFC * 0.5;
 #endif
+	float fragCoordZ = 0.5 * vHighPrecisionZW[0] / vHighPrecisionZW[1] + 0.5;
 	#if DEPTH_PACKING == 3200
-		gl_FragColor = vec4( vec3( 1.0 - gl_FragCoord.z ), opacity );
+		gl_FragColor = vec4( vec3( 1.0 - fragCoordZ ), opacity );
 	#elif DEPTH_PACKING == 3201
-		gl_FragColor = packDepthToRGBA( gl_FragCoord.z );
+		gl_FragColor = packDepthToRGBA( fragCoordZ );
 	#endif
 }
