@@ -14,7 +14,7 @@ node@12.3.1:
   dependencies:
     node-bin-setup "^1.0.0"
 
-three@^0.113.0:
-  version "0.113.2"
-  resolved "https://registry.yarnpkg.com/three/-/three-0.113.2.tgz#04791d491fe4359330f9dbe7b767db18bfb35d67"
-  integrity sha512-x3vrKW41/UtbWbWduWKGlfIc043SvHWr3YltehYq+UGb9YglQ2oztNGvl2eut05JtNSmP11Mh3t6Xak5/0e+Fg==
+three@^0.119.1:
+  version "0.119.1"
+  resolved "https://registry.yarnpkg.com/three/-/three-0.119.1.tgz#9d979a082c4cd9622af8e3498a8dfa026a619332"
+  integrity sha512-GHyh/RiUfQ5VTiWIVRRTANYoXc1PFB1y+jDVRTb649nif1uX1F06PT1TKU3k2+F/MN4UJ3PWvQB53fY2OqKqKw==
